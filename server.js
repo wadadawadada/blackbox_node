@@ -21,7 +21,7 @@ const MODELS_DIR = path.join(__dirname, "models");
 const LLM_HOST = "127.0.0.1";
 const LLM_PORT = 8080;
 const LLM_BASE_URL = `http://${LLM_HOST}:${LLM_PORT}`;
-const DEFAULT_MODEL_NAME = "Qwen2.5-3B-Instruct-Q5_K_M.gguf";
+const DEFAULT_MODEL_NAME = "Qwen2.5-0.5B-Instruct-Q3_K_M.gguf";
 const CURATED_MODELS = [
   {
     id: "qwen25-05b-q3km",

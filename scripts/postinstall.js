@@ -8,10 +8,10 @@ const LLAMA_DIR = path.join(ROOT_DIR, "llama");
 const MODELS_DIR = path.join(ROOT_DIR, "models");
 const PYDEPS_DIR = path.join(ROOT_DIR, "pydeps");
 
-const REQUIRED_LLAMA_FILES = ["llama-server.exe", "llama.dll", "ggml.dll", "ggml-base.dll", "ggml-cpu.dll", "ggml-rpc.dll"];
+const REQUIRED_LLAMA_FILES = ["llama-server.exe", "llama.dll", "ggml.dll", "ggml-base.dll"];
 const DEFAULT_MODEL = {
-  filename: "SmolLM2-135M-Instruct-IQ4_XS.gguf",
-  url: "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-IQ4_XS.gguf?download=true",
+  filename: "Qwen2.5-0.5B-Instruct-Q3_K_M.gguf",
+  url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q3_k_m.gguf?download=true",
 };
 
 function log(message) {
@@ -28,7 +28,25 @@ function exists(filePath) {
 }
 
 function hasLlamaRuntime() {
-  return REQUIRED_LLAMA_FILES.every((filename) => exists(path.join(LLAMA_DIR, filename)));
+  if (!exists(LLAMA_DIR)) {
+    return false;
+  }
+
+  if (!REQUIRED_LLAMA_FILES.every((filename) => exists(path.join(LLAMA_DIR, filename)))) {
+    return false;
+  }
+
+  const entries = fs.readdirSync(LLAMA_DIR, { withFileTypes: true });
+  return entries.some((entry) => {
+    if (!entry.isFile()) {
+      return false;
+    }
+    const name = entry.name.toLowerCase();
+    if (!/^ggml-.*\.dll$/.test(name)) {
+      return false;
+    }
+    return name !== "ggml-base.dll" && name !== "ggml-rpc.dll";
+  });
 }
 
 function hasAnyModel() {
@@ -122,6 +140,17 @@ function copyRuntimeFiles(extractedDir) {
       throw new Error(`Missing ${filename} in extracted llama runtime`);
     }
     fs.copyFileSync(source, path.join(LLAMA_DIR, filename));
+  }
+
+  for (const source of files) {
+    const basename = path.basename(source);
+    if (basename.toLowerCase() === "llama-server.exe") {
+      continue;
+    }
+    if (!basename.toLowerCase().endsWith(".dll")) {
+      continue;
+    }
+    fs.copyFileSync(source, path.join(LLAMA_DIR, basename));
   }
 }
 

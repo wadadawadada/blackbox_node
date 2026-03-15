@@ -103,15 +103,16 @@ Skip this step unless automatic bootstrap failed or you want to replace the runt
 
 Otherwise, the `llama/` folder must contain `llama-server.exe` and its companion DLLs. Download a prebuilt Windows release from the [llama.cpp releases page](https://github.com/ggerganov/llama.cpp/releases) — look for the `win-cuda`, `win-vulkan`, or `win-cpu` zip for your hardware.
 
-Extract these files into `./llama/`:
+Extract `llama-server.exe`, `llama.dll`, and the bundled `ggml*.dll` files into `./llama/`:
 ```
 llama/
   llama-server.exe
   llama.dll
   ggml.dll
   ggml-base.dll
-  ggml-cpu.dll
-  ggml-rpc.dll      ← and any other ggml-*.dll from the release
+  ggml-cpu.dll      ← older CPU builds
+  ggml-cpu-*.dll    ← newer CPU builds may use per-CPU variants instead
+  ggml-rpc.dll      ← plus any other ggml-*.dll from the release
 ```
 
 > **Which build to pick:**
@@ -211,8 +212,8 @@ On launch:
 |---|---|
 | Web UI | `http://127.0.0.1:7860` |
 | LLM backend | `http://127.0.0.1:8080` |
-| Starter model installed by bootstrap | `SmolLM2-135M-Instruct-IQ4_XS.gguf` |
-| Default model | `Qwen2.5-3B-Instruct-Q5_K_M.gguf` |
+| Starter model installed by bootstrap | `Qwen2.5-0.5B-Instruct-Q3_K_M.gguf` |
+| Default model | `Qwen2.5-0.5B-Instruct-Q3_K_M.gguf` |
 
 ---
 
