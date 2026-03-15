@@ -1,8 +1,8 @@
 {
-  "name": "localist",
+  "name": "blackbox-node",
   "version": "0.1.0",
   "private": true,
-  "description": "Meshtastic DM bot with local web UI",
+  "description": "Built for when the internet is gone.",
   "scripts": {
     "start": "node server.js",
     "postinstall": "node scripts/postinstall.js"

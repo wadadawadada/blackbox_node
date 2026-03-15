@@ -18,6 +18,60 @@ function log(message) {
   process.stdout.write(`[postinstall] ${message}\n`);
 }
 
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const digits = size >= 100 || unitIndex === 0 ? 0 : size >= 10 ? 1 : 2;
+  return `${size.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function createDownloadProgressReporter(label, totalBytes = 0) {
+  const isTTY = Boolean(process.stdout.isTTY);
+  let lastPercentLogged = -10;
+  let lastBytesLogged = 0;
+
+  return (downloadedBytes, force = false) => {
+    const downloaded = Number(downloadedBytes || 0);
+    const total = Number(totalBytes || 0);
+    const suffix = total > 0
+      ? `${Math.max(0, Math.min(100, Math.round((downloaded / total) * 100)))}% (${formatBytes(downloaded)} / ${formatBytes(total)})`
+      : formatBytes(downloaded);
+
+    if (isTTY) {
+      process.stdout.write(`\r[postinstall] downloading ${label} ${suffix}   `);
+      if (force) {
+        process.stdout.write("\n");
+      }
+      return;
+    }
+
+    if (total > 0) {
+      const percent = Math.max(0, Math.min(100, Math.floor((downloaded / total) * 100)));
+      if (!force && percent < lastPercentLogged + 10) {
+        return;
+      }
+      lastPercentLogged = percent;
+      log(`downloading ${label} ${percent}% (${formatBytes(downloaded)} / ${formatBytes(total)})`);
+      return;
+    }
+
+    if (!force && downloaded < lastBytesLogged + (25 * 1024 * 1024)) {
+      return;
+    }
+    lastBytesLogged = downloaded;
+    log(`downloading ${label} ${formatBytes(downloaded)}`);
+  };
+}
+
 function exists(filePath) {
   try {
     fs.accessSync(filePath);
@@ -69,7 +123,7 @@ async function fetchJson(url) {
   return response.json();
 }
 
-async function downloadFile(url, destinationPath) {
+async function downloadFile(url, destinationPath, label = path.basename(destinationPath)) {
   const response = await fetch(url, {
     redirect: "follow",
     headers: {
@@ -82,13 +136,20 @@ async function downloadFile(url, destinationPath) {
 
   await fs.promises.mkdir(path.dirname(destinationPath), { recursive: true });
   const writer = fs.createWriteStream(destinationPath);
+  const totalBytes = Number(response.headers.get("content-length") || 0);
+  const reportProgress = createDownloadProgressReporter(label, totalBytes);
+  let downloadedBytes = 0;
   try {
     for await (const chunk of response.body) {
+      const buffer = Buffer.from(chunk);
+      downloadedBytes += buffer.length;
       await new Promise((resolve, reject) => {
-        writer.write(Buffer.from(chunk), (error) => (error ? reject(error) : resolve()));
+        writer.write(buffer, (error) => (error ? reject(error) : resolve()));
       });
+      reportProgress(downloadedBytes);
     }
     await new Promise((resolve, reject) => writer.end((error) => (error ? reject(error) : resolve())));
+    reportProgress(downloadedBytes, true);
   } catch (error) {
     try {
       writer.destroy();
@@ -195,7 +256,7 @@ async function ensureLlamaRuntime() {
   const extractDir = path.join(tempRoot, "extract");
 
   try {
-    await downloadFile(assetUrl, archivePath);
+    await downloadFile(assetUrl, archivePath, "llama.cpp runtime");
     extractZip(archivePath, extractDir);
     copyRuntimeFiles(extractDir);
     log("llama runtime installed");
@@ -214,7 +275,7 @@ async function ensureStarterModel() {
 
   const targetPath = path.join(MODELS_DIR, DEFAULT_MODEL.filename);
   log(`downloading starter model ${DEFAULT_MODEL.filename}`);
-  await downloadFile(DEFAULT_MODEL.url, targetPath);
+  await downloadFile(DEFAULT_MODEL.url, targetPath, DEFAULT_MODEL.filename);
   log("starter model installed");
 }
 
