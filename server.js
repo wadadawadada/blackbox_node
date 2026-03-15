@@ -2717,8 +2717,8 @@ const server = http.createServer(async (req, res) => {
         '<link rel="icon" type="image/png" href="/static/ico.png?v=2">\n  <link rel="stylesheet" href="/static/styles.css">'
       );
       html = html.replace(
-        '<div class="titlebar-text">BLACKBOX NODE</div>',
-        '<div class="titlebar-brand" style="display:flex;align-items:center;gap:10px;min-width:0;"><img src="/static/logo.svg" alt="" class="titlebar-logo" style="width:24px;height:24px;display:block;flex:0 0 auto;"><div class="titlebar-text">BLACKBOX NODE</div></div>'
+        '<div class="titlebar-text">BLACK<span style="color:var(--success)">BOX</span> NODE</div>',
+        '<div class="titlebar-brand" style="display:flex;align-items:center;gap:10px;min-width:0;"><img src="/static/logo.svg" alt="" class="titlebar-logo" style="width:24px;height:24px;display:block;flex:0 0 auto;"><div class="titlebar-text">BLACK<span style="color:var(--success)">BOX</span> NODE</div></div>'
       );
       html = html.replace(
         "</body>",
