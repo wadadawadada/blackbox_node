@@ -2,6 +2,8 @@
 
 > **Built for when the internet is gone.**
 
+Website: [blackbox.host](https://blackbox.host/)
+
 Power outages, blackouts, infrastructure failures, or simply living off-grid — Blackbox Node keeps communication, AI assistance, and basic economic infrastructure running without a cloud, without a server, without a cell tower.
 
 It combines a fully local AI (runs on your machine, no internet required) with [Meshtastic](https://meshtastic.org/) — an open-source, long-range radio mesh network built on **LoRa** technology. The result is a self-contained node that can think, talk over radio, and move money when nothing else works.
