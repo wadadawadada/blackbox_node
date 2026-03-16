@@ -94,7 +94,7 @@
               </div>
               <button id="clearChatButton" type="button" class="panel-action-button chat-clear-button" aria-label="Clear chat">Clear</button>
               <div class="chat-subtitle-row">
-                <div id="chatSubtitle" class="chat-subtitle">Offline model test</div>
+                <div id="chatSubtitle" class="chat-subtitle">Offline AI</div>
               </div>
             </div>
             <div id="chatPeerRow" class="chat-peer-row hidden">
@@ -336,7 +336,7 @@
     <section class="modal-panel panel wallet-panel" role="dialog" aria-modal="true" aria-labelledby="walletModalTitle">
       <div class="panel-head modal-head wallet-modal-header">
         <div>
-          <h2 id="walletModalTitle">Wallet</h2>
+          <h2 id="walletModalTitle">MESH &amp; CASH WALLET</h2>
           <div class="chat-subtitle">Offline-friendly crypto tools for Meshtastic nodes</div>
         </div>
         <button id="walletModalClose" type="button" class="modal-close" aria-label="Close wallet modal">X</button>
@@ -547,7 +547,9 @@
                   <div class="modal-label">Bitcoin Address (P2WPKH)</div>
                   <div class="wallet-inline-row">
                     <input id="walletReceiveId" type="text" readonly value="">
-                    <button id="walletCopyReceiveIdButton" type="button">Copy</button>
+                    <button id="walletCopyReceiveIdButton" type="button" class="wallet-icon-button" title="Copy address" aria-label="Copy Bitcoin address">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
                   </div>
                 </div>
 

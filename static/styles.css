@@ -899,11 +899,10 @@ button {
 
 .ai-settings-actions {
   display: flex;
-  justify-content: flex-end;
 }
 
 .ai-settings-actions button {
-  min-width: 110px;
+  width: 100%;
 }
 
 .model-card {
@@ -2154,6 +2153,22 @@ textarea {
 
   .left-column {
     grid-template-rows: auto auto auto;
+  }
+
+  .log-panel {
+    max-height: 320px;
+  }
+
+  .log {
+    max-height: 260px;
+  }
+
+  .chat-panel {
+    min-height: 480px;
+  }
+
+  .main-chat-panel {
+    grid-template-rows: minmax(320px, 1fr);
   }
 
   .chat-title-line {

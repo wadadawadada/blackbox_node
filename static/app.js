@@ -453,7 +453,7 @@ function setChatMode(mode, { focusInput = false } = {}) {
     chatPeerRow.classList.toggle("hidden", !isDm);
   }
   if (chatSubtitle) {
-    chatSubtitle.textContent = isDm ? "Direct messages with mesh nodes" : "Offline model test";
+    chatSubtitle.textContent = isDm ? "Direct messages with mesh nodes" : "Offline AI";
   }
   if (chatText) {
     chatText.placeholder = isDm ? CHAT_PLACEHOLDER_DM : CHAT_PLACEHOLDER_AI;
@@ -1608,7 +1608,12 @@ if (receiveCashuTab) {
 }
 
 walletCopyReceiveIdButton.addEventListener("click", async () => {
-  await copyText(walletReceiveId.value).catch(() => {});
+  if (!walletReceiveId.value) return;
+  try {
+    await copyText(walletReceiveId.value);
+    walletCopyReceiveIdButton.classList.add("copied");
+    setTimeout(() => walletCopyReceiveIdButton.classList.remove("copied"), 1200);
+  } catch { /* silent */ }
 });
 
 walletPreferredUnitSelect.addEventListener("change", () => {
@@ -1920,6 +1925,7 @@ aiSettingsForm.addEventListener("submit", async (event) => {
     });
     renderAiSettings(payload);
     aiSettingsStatusText.textContent = "AI settings saved.";
+    closeAiSettingsModal();
   } catch (error) {
     aiSettingsStatusText.textContent = `Save failed: ${error.message}`;
   }
