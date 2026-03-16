@@ -35,12 +35,16 @@ Other Meshtastic nodes in range can query your AI by radio. Send `@bot your ques
 ### Communication
 All inbound and outbound Meshtastic messages are tracked and displayed in the web UI. Node positions, telemetry, battery levels, and environment readings are recorded and browsable. Direct messages and channel broadcasts are both supported.
 
+![Chat and message log](static/img/chat.png)
+
 ### Off-grid payments
 Blackbox Node includes a built-in **Bitcoin wallet** (on-chain, BIP-39/HD) and a **Cashu ecash wallet** for Lightning-compatible off-grid transactions.
 
 [Cashu](https://cashu.space) tokens are bearer instruments — self-contained strings of value that can be copied and pasted like text. This means payments can be sent over Meshtastic radio as plain text messages: no internet, no payment processors, just radio waves. When connectivity returns, tokens can be melted back to Lightning or held as ecash.
 
 This makes it possible to run basic economic activity — tipping, paying for services, splitting resources — entirely over a radio mesh network.
+
+![Wallet](static/img/wallet.png)
 
 ---
 
@@ -130,6 +134,8 @@ Otherwise, create the `models/` folder and download at least one `.gguf` model f
 1. Run `npm start`
 2. Open `http://127.0.0.1:7860`
 3. Go to **Settings → Models** and click **Install** next to any model
+
+![LLM Manager](static/img/llm_manager.png)
 
 **Option B — download manually** (no internet on first run):
 ```bat
