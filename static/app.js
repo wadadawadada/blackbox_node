@@ -132,20 +132,62 @@ const walletSeedRevealGrid = document.getElementById("walletSeedRevealGrid");
 const walletSeedNotAvailable = document.getElementById("walletSeedNotAvailable");
 const walletSeedEyeIcon = document.getElementById("walletSeedEyeIcon");
 const walletSeedEyeOffIcon = document.getElementById("walletSeedEyeOffIcon");
+const walletTestModeToggle = document.getElementById("walletTestModeToggle");
+const walletTestModeBadge = document.getElementById("walletTestModeBadge");
+const walletFaucetCard = document.getElementById("walletFaucetCard");
+const faucetAddressButton = document.getElementById("faucetAddressButton");
+const faucetInvoiceButton = document.getElementById("faucetInvoiceButton");
+const faucetStatus = document.getElementById("faucetStatus");
+// Swap panel
+const swapBtcToCashuForm = document.getElementById("swapBtcToCashuForm");
+const swapBtcAmount = document.getElementById("swapBtcAmount");
+const swapBtcStatus = document.getElementById("swapBtcStatus");
+const swapBtcOnchainBalance = document.getElementById("swapBtcOnchainBalance");
+const swapCashuToBtcForm = document.getElementById("swapCashuToBtcForm");
+const swapCashuAmount = document.getElementById("swapCashuAmount");
+const swapCashuBtcAddr = document.getElementById("swapCashuBtcAddr");
+const swapCashuStatus = document.getElementById("swapCashuStatus");
+const swapCashuAvailable = document.getElementById("swapCashuAvailable");
+const swapCashuReceiveForm = document.getElementById("swapCashuReceiveForm");
+const swapCashuReceiveInput = document.getElementById("swapCashuReceiveInput");
+const swapCashuReceiveStatus = document.getElementById("swapCashuReceiveStatus");
+const swapCashuSendForm = document.getElementById("swapCashuSendForm");
+const swapCashuSendAmount = document.getElementById("swapCashuSendAmount");
+const swapCashuSendRecipient = document.getElementById("swapCashuSendRecipient");
+const swapCashuSendStatus = document.getElementById("swapCashuSendStatus");
+const swapCashuSendResult = document.getElementById("swapCashuSendResult");
+const swapCashuSendToken = document.getElementById("swapCashuSendToken");
+const swapCashuCopyTokenBtn = document.getElementById("swapCashuCopyTokenBtn");
+const swapLnAmount = document.getElementById("swapLnAmount");
+const swapLnInvoiceButton = document.getElementById("swapLnInvoiceButton");
+const swapLnStatus = document.getElementById("swapLnStatus");
+const swapLnBlock = document.getElementById("swapLnBlock");
+const swapLnQr = document.getElementById("swapLnQr");
+const swapLnPr = document.getElementById("swapLnPr");
+const swapLnCopyBtn = document.getElementById("swapLnCopyBtn");
+const swapLnCheckButton = document.getElementById("swapLnCheckButton");
+const swapLnCheckStatus = document.getElementById("swapLnCheckStatus");
+const activeSwapsCard = document.getElementById("activeSwapsCard");
+const activeSwapsList = document.getElementById("activeSwapsList");
+const settingsMintUrlInput = document.getElementById("settingsMintUrlInput");
+const settingsSetMintButton = document.getElementById("settingsSetMintButton");
+const settingsMintStatus = document.getElementById("settingsMintStatus");
 const walletViewButtons = Array.from(document.querySelectorAll("[data-wallet-view]"));
 const walletQuickButtons = Array.from(document.querySelectorAll(".wallet-quick-button"));
 const walletViewPanels = {
   home: document.getElementById("walletPanelHome"),
-  send: document.getElementById("walletPanelSend"),
   receive: document.getElementById("walletPanelReceive"),
-  fund: document.getElementById("walletPanelFund"),
+  send: document.getElementById("walletPanelSend"),
+  swap: document.getElementById("walletPanelSwap"),
   history: document.getElementById("walletPanelHistory"),
   settings: document.getElementById("walletPanelSettings"),
+  fund: document.getElementById("walletPanelFund"), // legacy, hidden
 };
 let currentSelectedModel = "";
 const LOCAL_CHAT_PEER_ID = "local-ui-user";
 let latestModelManagerPayload = null;
 let latestAiSettingsPayload = null;
+let swapLnPollInterval = null;
 let showingDonateView = false;
 let latestMeshtasticConnected = false;
 let latestMessages = [];
@@ -179,6 +221,8 @@ const walletState = {
   mnemonic: null,
   balance: null,
   qrLoaded: false,
+  testMode: false,
+  network: "mainnet",
   settings: {
     preferredUnit: "sats",
     defaultTransport: "Meshtastic DM",
@@ -303,6 +347,7 @@ function populateNodeSelect(selectEl, preferredValue = "") {
 
 function syncNodeSelectors() {
   populateNodeSelect(walletRecipientInput, walletRecipientInput?.value || "");
+  populateNodeSelect(swapCashuSendRecipient, swapCashuSendRecipient?.value || "");
   const preferredChatPeer = chatState.selectedPeer || readStoredChatPeer();
   populateNodeSelect(chatPeerSelect, preferredChatPeer || chatPeerSelect?.value || "");
   if (chatPeerSelect && preferredChatPeer) {
@@ -818,6 +863,35 @@ function getFocusableElements(container) {
   });
 }
 
+function applyTestMode() {
+  const tm = walletState.testMode;
+  if (walletTestModeBadge) walletTestModeBadge.hidden = !tm;
+  if (walletFaucetCard) walletFaucetCard.hidden = !tm;
+  if (walletTestModeToggle) walletTestModeToggle.checked = tm;
+
+  // Show locked signet mint row in test mode, configurable row in prod mode
+  const cashuMintTestRow = document.getElementById("cashuMintTestRow");
+  const cashuMintProdRow = document.getElementById("cashuMintProdRow");
+  const settingsMintTestRow = document.getElementById("settingsMintTestRow");
+  const settingsMintProdRow = document.getElementById("settingsMintProdRow");
+  if (cashuMintTestRow) cashuMintTestRow.hidden = !tm;
+  if (cashuMintProdRow) cashuMintProdRow.hidden = tm;
+  if (settingsMintTestRow) settingsMintTestRow.hidden = !tm;
+  if (settingsMintProdRow) settingsMintProdRow.hidden = tm;
+
+  // Update invoice input hints based on network
+  if (swapCashuBtcAddr) {
+    swapCashuBtcAddr.placeholder = tm ? "lntbs... (mutinynet/signet invoice)" : "lnbc... (mainnet invoice)";
+  }
+  if (cashuMeltInput) {
+    cashuMeltInput.placeholder = tm ? "lntbs... (mutinynet/signet invoice)" : "lnbc... (mainnet invoice)";
+  }
+  const swapLnTestHint = document.getElementById("swapLnTestHint");
+  const swapCashuTestHint = document.getElementById("swapCashuTestHint");
+  if (swapLnTestHint) swapLnTestHint.hidden = !tm;
+  if (swapCashuTestHint) swapCashuTestHint.hidden = !tm;
+}
+
 function setWalletStatusRow() {
   walletState.meshtasticConnected = latestMeshtasticConnected;
   const engineOk = walletState.walletConfigured;
@@ -826,6 +900,7 @@ function setWalletStatusRow() {
   walletEngineStatus.className = engineOk ? "status-ok" : "status-err";
   walletMeshtasticStatus.textContent = meshOk ? "Connected" : "Disconnected";
   walletMeshtasticStatus.className = meshOk ? "status-ok" : "status-err";
+  applyTestMode();
 }
 
 function formatSats(sats) {
@@ -855,6 +930,7 @@ function updateWalletBalanceDisplay() {
   walletBalanceValue.textContent = formatSats(b.confirmed);
   const pendingText = b.unconfirmed !== 0 ? ` | ${b.unconfirmed >= 0 ? "+" : ""}${b.unconfirmed} pending` : "";
   walletBalanceSub.textContent = `confirmed${pendingText}`;
+  if (swapBtcOnchainBalance) swapBtcOnchainBalance.textContent = formatSats(b.confirmed);
 }
 
 async function loadWalletBalance() {
@@ -907,12 +983,13 @@ async function loadWalletQr() {
 function renderWalletSettingsInfo() {
   if (!walletState.walletConfigured || !walletInfoKv) return;
   walletInfoKv.innerHTML = "";
+  const tm = walletState.testMode;
   const rows = [
     ["Type", "BIP84 HD Wallet (P2WPKH)"],
-    ["Network", "Bitcoin Mainnet"],
+    ["Network", tm ? "Bitcoin Testnet (Mutinynet)" : "Bitcoin Mainnet"],
     ["Address", walletState.address ? walletState.address.slice(0, 20) + "..." : "—"],
-    ["Path", "m/84'/0'/0'/0/0"],
-    ["Storage", "./data/wallet.json"],
+    ["Path", tm ? "m/84'/1'/0'/0/0" : "m/84'/0'/0'/0/0"],
+    ["Storage", tm ? "./data/test_wallet.json" : "./data/wallet.json"],
   ];
   rows.forEach(([k, v]) => {
     const row = document.createElement("div");
@@ -950,11 +1027,16 @@ async function loadWalletState() {
     walletState.walletConfigured = data.configured;
     walletState.address = data.address || null;
     walletState.mnemonic = data.mnemonic || null;
+    walletState.testMode = Boolean(data.testMode);
+    walletState.network = data.network || "mainnet";
+    walletState.qrLoaded = false;
     applyWalletConfiguredState();
+    applyTestMode();
     if (data.configured) loadWalletBalance();
   } catch { /* keep defaults */ }
-  // Also load cashu state
+  // Also load cashu state and swap list
   loadCashuState();
+  fetchJson("/api/swap/list").then((data) => renderActiveSwaps(data || [])).catch(() => {});
 }
 
 // ─── Cashu UI ─────────────────────────────────────────────────────────────────
@@ -968,10 +1050,14 @@ function applyCashuState() {
   if (cashuBalanceValue) cashuBalanceValue.textContent = cfg ? formatSats(cashuState.balance) : "—";
   if (cashuBalanceSub) cashuBalanceSub.textContent = cfg ? (cashuState.mintUrl || "") : "No mint configured — go to Fund";
   if (cashuSendAvailable) cashuSendAvailable.textContent = formatSats(cashuState.balance);
+  if (swapCashuAvailable) swapCashuAvailable.textContent = formatSats(cashuState.balance);
   if (walletRefreshBalance) walletRefreshBalance.hidden = false;
-  // Mint input
+  // Mint input sync
   if (cashuMintUrlInput && cashuState.mintUrl && !cashuMintUrlInput.value) {
     cashuMintUrlInput.value = cashuState.mintUrl;
+  }
+  if (settingsMintUrlInput && cashuState.mintUrl && !settingsMintUrlInput.value) {
+    settingsMintUrlInput.value = cashuState.mintUrl;
   }
   renderCashuPending();
 }
@@ -1076,6 +1162,7 @@ function setWalletView(viewName, options = {}) {
   });
 
   Object.entries(walletViewPanels).forEach(([key, panel]) => {
+    if (!panel) return;
     const isActive = key === viewName;
     panel.classList.toggle("is-active", isActive);
     panel.hidden = !isActive;
@@ -1385,6 +1472,9 @@ function renderDeviceStatus(status) {
     : (isConnecting ? "Link check in progress..." : (mesh.error || "Waiting for auto-connect"));
 
   latestMeshtasticConnected = connected;
+  if (typeof status.walletTestMode === "boolean") {
+    walletState.testMode = status.walletTestMode;
+  }
   setWalletStatusRow();
   renderModelStatus(status.llm || {});
 }
@@ -1775,6 +1865,15 @@ cashuMeltForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const pr = cashuMeltInput.value.trim();
   if (!pr) { cashuMeltStatus.textContent = "Paste a Lightning invoice."; return; }
+  const prLower = pr.toLowerCase();
+  if (walletState.testMode && prLower.startsWith("lnbc")) {
+    cashuMeltStatus.textContent = "Test mode uses mutinynet (signet). Use a signet invoice (starts with lntbs).";
+    return;
+  }
+  if (!walletState.testMode && prLower.startsWith("lntbs")) {
+    cashuMeltStatus.textContent = "This looks like a signet invoice. For mainnet, use an invoice starting with lnbc.";
+    return;
+  }
   cashuMeltStatus.textContent = "Paying...";
   try {
     const data = await fetchJson("/api/cashu/melt", { method: "POST", body: JSON.stringify({ pr }) });
@@ -1806,6 +1905,272 @@ cashuReceiveForm.addEventListener("submit", async (event) => {
 });
 
 // ─── End Cashu event handlers ─────────────────────────────────────────────────
+
+// ─── Swap panel handlers ───────────────────────────────────────────────────────
+
+function renderActiveSwaps(swaps) {
+  if (!activeSwapsCard || !activeSwapsList) return;
+  const active = (swaps || []).filter((s) => !["done", "failed", "expired"].includes(s.status));
+  activeSwapsCard.hidden = active.length === 0;
+  if (active.length === 0) return;
+  activeSwapsList.innerHTML = "";
+  active.forEach((s) => {
+    const el = document.createElement("div");
+    el.className = "wallet-pending-item";
+    const dir = s.type === "btc-to-cashu" ? "BTC → Cashu" : "Cashu → BTC";
+    const amt = s.amount ? `${s.amount} sats` : "";
+    el.innerHTML = `<span class="wallet-pending-label">${dir} ${amt}</span><span class="wallet-pending-status">${s.status}</span>`;
+    activeSwapsList.appendChild(el);
+  });
+}
+
+// Settings mint button — same API as Fund panel
+if (settingsSetMintButton) {
+  settingsSetMintButton.addEventListener("click", async () => {
+    const url = (settingsMintUrlInput?.value || "").trim();
+    if (!url) { if (settingsMintStatus) settingsMintStatus.textContent = "Enter a mint URL."; return; }
+    settingsSetMintButton.disabled = true;
+    if (settingsMintStatus) settingsMintStatus.textContent = "Connecting to mint...";
+    try {
+      const data = await fetchJson("/api/cashu/mint", { method: "POST", body: JSON.stringify({ mintUrl: url }) });
+      cashuState.configured = true;
+      cashuState.mintUrl = data.mintUrl;
+      if (settingsMintStatus) settingsMintStatus.textContent = "Connected!";
+      // keep Fund panel input in sync
+      if (cashuMintUrlInput) cashuMintUrlInput.value = url;
+      applyCashuState();
+    } catch (e) {
+      if (settingsMintStatus) settingsMintStatus.textContent = e.message;
+    } finally {
+      settingsSetMintButton.disabled = false;
+    }
+  });
+}
+
+// ── Swap panel ────────────────────────────────────────────────────────────────
+
+function clearSwapLnPoll() {
+  if (swapLnPollInterval !== null) {
+    clearInterval(swapLnPollInterval);
+    swapLnPollInterval = null;
+  }
+}
+
+function startSwapLnPoll(hash) {
+  clearSwapLnPoll();
+  let attempts = 0;
+  const MAX_ATTEMPTS = 120; // 120 × 5s = 10 min
+  swapLnPollInterval = setInterval(async () => {
+    attempts++;
+    if (attempts > MAX_ATTEMPTS) {
+      clearSwapLnPoll();
+      if (swapLnCheckStatus) swapLnCheckStatus.textContent = "Invoice expired after 10 min. Create a new one.";
+      if (swapLnBlock) swapLnBlock.hidden = true;
+      return;
+    }
+    try {
+      const data = await fetchJson("/api/cashu/check", { method: "POST", body: JSON.stringify({ hash }) });
+      clearSwapLnPoll();
+      cashuState.balance = data.balance;
+      cashuState.currentInvoiceHash = null;
+      cashuState.pendingInvoices = (cashuState.pendingInvoices || []).filter((i) => i.hash !== hash);
+      if (swapLnCheckStatus) swapLnCheckStatus.textContent = `Paid! +${data.amount} sats — balance updated.`;
+      if (swapLnBlock) swapLnBlock.hidden = true;
+      if (swapLnAmount) swapLnAmount.value = "";
+      if (swapLnStatus) swapLnStatus.textContent = "";
+      applyCashuState();
+    } catch {
+      // 402 = not paid yet, keep polling silently
+    }
+  }, 5000);
+}
+
+function showSwapLnInvoice(pr, qr, hash, amount) {
+  cashuState.currentInvoiceHash = hash;
+  cashuState.pendingInvoices = cashuState.pendingInvoices || [];
+  if (!cashuState.pendingInvoices.find((i) => i.hash === hash)) {
+    cashuState.pendingInvoices.push({ hash, amount, pr, createdAt: new Date().toISOString() });
+  }
+  if (swapLnPr) swapLnPr.value = pr;
+  if (swapLnQr && qr) swapLnQr.src = qr;
+  if (swapLnBlock) swapLnBlock.hidden = false;
+  if (swapLnCheckStatus) swapLnCheckStatus.textContent = "Waiting for payment... (auto-checking every 5s)";
+  startSwapLnPoll(hash);
+}
+
+if (swapLnInvoiceButton) {
+  swapLnInvoiceButton.addEventListener("click", async () => {
+    const amount = Number(swapLnAmount?.value);
+    if (!amount || amount <= 0) { if (swapLnStatus) swapLnStatus.textContent = "Enter an amount."; return; }
+    if (!cashuState.configured) { if (swapLnStatus) swapLnStatus.textContent = "Set a Cashu mint in Settings first."; return; }
+    swapLnInvoiceButton.disabled = true;
+    if (swapLnStatus) swapLnStatus.textContent = "Creating invoice...";
+    try {
+      const data = await fetchJson("/api/cashu/invoice", { method: "POST", body: JSON.stringify({ amount }) });
+      if (swapLnStatus) swapLnStatus.textContent = walletState.testMode
+        ? `Signet invoice for ${amount} sats — pay at faucet.mutinynet.com (Lightning tab)`
+        : `Invoice for ${amount} sats — pay with any Lightning wallet`;
+      showSwapLnInvoice(data.pr, data.qr, data.hash, amount);
+    } catch (e) {
+      if (swapLnStatus) swapLnStatus.textContent = e.message;
+    } finally {
+      swapLnInvoiceButton.disabled = false;
+    }
+  });
+}
+
+if (swapLnCopyBtn) {
+  swapLnCopyBtn.addEventListener("click", async () => {
+    try { await copyText(swapLnPr?.value || ""); if (swapLnStatus) swapLnStatus.textContent = "Copied!"; } catch { /* silent */ }
+  });
+}
+
+if (swapLnCheckButton) {
+  swapLnCheckButton.addEventListener("click", async () => {
+    const hash = cashuState.currentInvoiceHash;
+    if (!hash) { if (swapLnCheckStatus) swapLnCheckStatus.textContent = "No invoice to check."; return; }
+    swapLnCheckButton.disabled = true;
+    if (swapLnCheckStatus) swapLnCheckStatus.textContent = "Checking...";
+    try {
+      const data = await fetchJson("/api/cashu/check", { method: "POST", body: JSON.stringify({ hash }) });
+      clearSwapLnPoll();
+      cashuState.balance = data.balance;
+      cashuState.currentInvoiceHash = null;
+      cashuState.pendingInvoices = (cashuState.pendingInvoices || []).filter((i) => i.hash !== hash);
+      if (swapLnCheckStatus) swapLnCheckStatus.textContent = `Paid! +${data.amount} sats`;
+      if (swapLnBlock) swapLnBlock.hidden = true;
+      if (swapLnAmount) swapLnAmount.value = "";
+      if (swapLnStatus) swapLnStatus.textContent = "";
+      applyCashuState();
+    } catch (e) {
+      if (swapLnCheckStatus) swapLnCheckStatus.textContent = `Not paid yet: ${e.message}`;
+    } finally {
+      swapLnCheckButton.disabled = false;
+    }
+  });
+}
+
+// Hidden stub form — no-op
+if (swapBtcToCashuForm) {
+  swapBtcToCashuForm.addEventListener("submit", (e) => e.preventDefault());
+}
+
+// Cashu → Lightning: show amount preview when invoice pasted
+if (swapCashuBtcAddr) {
+  swapCashuBtcAddr.addEventListener("input", () => {
+    const inv = (swapCashuBtcAddr.value || "").trim().toLowerCase();
+    const previewRow = document.getElementById("swapCashuAmountPreviewRow");
+    const previewEl = document.getElementById("swapCashuAmountPreview");
+    if (inv.length > 50 && inv.startsWith("ln")) {
+      if (previewRow) previewRow.style.display = "";
+      if (previewEl) previewEl.textContent = "Amount will be read from invoice by server";
+    } else {
+      if (previewRow) previewRow.style.display = "none";
+    }
+  });
+}
+
+// Cashu → Lightning: pay invoice (no manual amount)
+if (swapCashuToBtcForm) {
+  swapCashuToBtcForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const address = (swapCashuBtcAddr?.value || "").trim();
+    if (!address) { if (swapCashuStatus) swapCashuStatus.textContent = "Paste a Lightning invoice."; return; }
+    if (!cashuState.configured) { if (swapCashuStatus) swapCashuStatus.textContent = "Set a Cashu mint in Settings first."; return; }
+    const addrLower = address.toLowerCase();
+    if (walletState.testMode && addrLower.startsWith("lnbc")) {
+      if (swapCashuStatus) swapCashuStatus.textContent = "Test mode uses mutinynet. Paste a signet invoice (starts with lntbs).";
+      return;
+    }
+    if (!walletState.testMode && addrLower.startsWith("lntbs")) {
+      if (swapCashuStatus) swapCashuStatus.textContent = "This looks like a signet invoice (lntbs). For mainnet, use an invoice starting with lnbc.";
+      return;
+    }
+    const btn = swapCashuToBtcForm.querySelector("button[type=submit]");
+    if (btn) btn.disabled = true;
+    if (swapCashuStatus) swapCashuStatus.textContent = "Paying Lightning invoice...";
+    try {
+      const data = await fetchJson("/api/swap/cashu-to-btc", { method: "POST", body: JSON.stringify({ address }) });
+      cashuState.balance = data.balance ?? cashuState.balance;
+      applyCashuState();
+      if (swapCashuStatus) swapCashuStatus.textContent = data.isPaid
+        ? `Paid ${data.amount} sats over Lightning.`
+        : (data.statusLabel || "Lightning payment started.");
+      if (swapCashuBtcAddr) swapCashuBtcAddr.value = "";
+      const previewRow = document.getElementById("swapCashuAmountPreviewRow");
+      if (previewRow) previewRow.style.display = "none";
+    } catch (e) {
+      if (swapCashuStatus) swapCashuStatus.textContent = e.message;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+}
+
+// Receive Cashu token (Swap panel)
+if (swapCashuReceiveForm) {
+  swapCashuReceiveForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const token = (swapCashuReceiveInput?.value || "").trim();
+    if (!token) { if (swapCashuReceiveStatus) swapCashuReceiveStatus.textContent = "Paste a cashuA... token."; return; }
+    if (swapCashuReceiveStatus) swapCashuReceiveStatus.textContent = "Redeeming...";
+    try {
+      const data = await fetchJson("/api/cashu/receive", { method: "POST", body: JSON.stringify({ token }) });
+      cashuState.balance = data.balance;
+      if (swapCashuReceiveStatus) swapCashuReceiveStatus.textContent = `Received ${data.amount} sats! Balance: ${data.balance} sats`;
+      if (swapCashuReceiveInput) swapCashuReceiveInput.value = "";
+      applyCashuState();
+      walletState.history.unshift({ id: `cashu-recv-${Date.now()}`, direction: "Received", peer: "Cashu token", amount: data.amount, unit: "sats", status: "Confirmed", timestamp: new Date().toLocaleString() });
+      renderWalletHistory();
+    } catch (e) {
+      if (swapCashuReceiveStatus) swapCashuReceiveStatus.textContent = e.message;
+    }
+  });
+}
+
+// Send Cashu token (Swap panel)
+if (swapCashuSendForm) {
+  swapCashuSendForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const amount = Number(swapCashuSendAmount?.value);
+    const recipient = (swapCashuSendRecipient?.value || "").trim();
+    if (!amount || amount <= 0) { if (swapCashuSendStatus) swapCashuSendStatus.textContent = "Enter amount."; return; }
+    if (swapCashuSendStatus) swapCashuSendStatus.textContent = "Creating token...";
+    try {
+      const data = await fetchJson("/api/cashu/send", { method: "POST", body: JSON.stringify({ amount, peer: recipient || "manual", memo: "" }) });
+      cashuState.balance = Math.max(0, cashuState.balance - amount);
+      applyCashuState();
+      if (swapCashuSendToken) swapCashuSendToken.value = data.token;
+      if (swapCashuSendResult) swapCashuSendResult.hidden = false;
+      if (swapCashuSendStatus) swapCashuSendStatus.textContent = `Token created: ${amount} sats`;
+      if (recipient) {
+        try {
+          await fetchJson("/api/mesh/send", { method: "POST", body: JSON.stringify({ destinationId: recipient, text: data.token }) });
+          if (swapCashuSendStatus) swapCashuSendStatus.textContent = `Sent ${amount} sats to ${recipient} via mesh`;
+        } catch {
+          if (swapCashuSendStatus) swapCashuSendStatus.textContent = "Token ready — mesh send failed, copy manually";
+        }
+      }
+      if (swapCashuSendAmount) swapCashuSendAmount.value = "";
+      walletState.history.unshift({ id: `cashu-send-${Date.now()}`, direction: "Sent", peer: recipient || "manual", amount, unit: "sats", status: "Token created", timestamp: new Date().toLocaleString() });
+      renderWalletHistory();
+    } catch (e) {
+      if (swapCashuSendStatus) swapCashuSendStatus.textContent = e.message;
+    }
+  });
+}
+
+if (swapCashuCopyTokenBtn) {
+  swapCashuCopyTokenBtn.addEventListener("click", async () => {
+    try {
+      await copyText(swapCashuSendToken?.value || "");
+      swapCashuCopyTokenBtn.textContent = "Copied!";
+      setTimeout(() => { swapCashuCopyTokenBtn.textContent = "Copy"; }, 1200);
+    } catch { /* silent */ }
+  });
+}
+
+// ─── End Swap panel handlers ───────────────────────────────────────────────────
 
 function fillMnemonicGrid(container, mnemonic) {
   container.innerHTML = "";
@@ -1873,6 +2238,42 @@ async function doCreateWallet(triggerButton, statusEl) {
     if (triggerButton) triggerButton.disabled = false;
   }
 }
+
+if (walletTestModeToggle) {
+  walletTestModeToggle.addEventListener("change", async () => {
+    const enable = walletTestModeToggle.checked;
+    try {
+      const result = await fetchJson("/api/wallet/testmode", { method: "POST", body: JSON.stringify({ enabled: enable }) });
+      walletState.testMode = result.testMode;
+      // Reset wallet UI state since we're switching contexts
+      walletState.walletConfigured = false;
+      walletState.address = null;
+      walletState.mnemonic = null;
+      walletState.balance = null;
+      walletState.qrLoaded = false;
+      walletState.history = [];
+      renderWalletHistory();
+      applyTestMode();
+      applyWalletConfiguredState();
+      // Reload state for the newly active mode
+      loadWalletState();
+    } catch (err) {
+      walletSettingsStatus.textContent = `Error: ${err.message}`;
+      walletTestModeToggle.checked = !enable;
+    }
+  });
+}
+
+
+if (faucetAddressButton) {
+  faucetAddressButton.addEventListener("click", async () => {
+    const address = walletState.address || "your test wallet address";
+    if (faucetStatus) {
+      faucetStatus.textContent = `Open faucet.mutinynet.com and fund ${address}. Direct app requests are blocked by the faucet's browser token requirement.`;
+    }
+  });
+}
+
 
 walletInitButton.addEventListener("click", () => {
   doCreateWallet(walletInitButton, walletSettingsStatus);
@@ -2005,6 +2406,9 @@ function connectEvents() {
   source.addEventListener("model-manager", (event) => {
     renderModelManager(JSON.parse(event.data));
   });
+  source.addEventListener("swaps", (event) => {
+    renderActiveSwaps(JSON.parse(event.data) || []);
+  });
   source.onerror = () => {
     setTimeout(() => {
       source.close();
@@ -2027,7 +2431,4 @@ loadStatus();
 loadMessages();
 loadNodes();
 connectEvents();
-
-
-
 

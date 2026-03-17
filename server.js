@@ -14,6 +14,11 @@ const NODES_FILE = path.join(DATA_DIR, "nodes.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const WALLET_FILE = path.join(DATA_DIR, "wallet.json");
 const CASHU_FILE = path.join(DATA_DIR, "cashu.json");
+const TEST_WALLET_FILE = path.join(DATA_DIR, "test_wallet.json");
+const TEST_CASHU_FILE = path.join(DATA_DIR, "test_cashu.json");
+const TEST_CASHU_DEFAULT_MINT = "https://cashu.mutinynet.com";
+const MUTINYNET_FAUCET_URL = "https://faucet.mutinynet.com";
+const SWAPS_FILE = path.join(DATA_DIR, "swaps.json");
 const PYDEPS_DIR = path.join(__dirname, "pydeps");
 const LLAMA_DIR = path.join(__dirname, "llama");
 const LLAMA_EXE = path.join(LLAMA_DIR, "llama-server.exe");
@@ -215,6 +220,9 @@ let knownNodes = {};
 let appSettings = {};
 let walletData = null;
 let cashuData = { mintUrl: "", proofs: [], pendingInvoices: [], history: [] };
+let testWalletData = null;
+let testCashuData = { mintUrl: TEST_CASHU_DEFAULT_MINT, proofs: [], pendingInvoices: [], history: [] };
+let swaps = [];
 let meshtasticStatus = { connected: false, mode: "starting", error: null };
 let currentModelName = DEFAULT_MODEL_NAME;
 let llmStatus = { connected: false, mode: "starting", model: currentModelName, error: null, switching: false };
@@ -269,6 +277,29 @@ if (fs.existsSync(CASHU_FILE)) {
     const loaded = JSON.parse(fs.readFileSync(CASHU_FILE, "utf8"));
     cashuData = { mintUrl: "", proofs: [], pendingInvoices: [], history: [], ...loaded };
   } catch { /* keep defaults */ }
+}
+
+if (fs.existsSync(TEST_WALLET_FILE)) {
+  try {
+    testWalletData = JSON.parse(fs.readFileSync(TEST_WALLET_FILE, "utf8"));
+  } catch {
+    testWalletData = null;
+  }
+}
+
+if (fs.existsSync(TEST_CASHU_FILE)) {
+  try {
+    const loaded = JSON.parse(fs.readFileSync(TEST_CASHU_FILE, "utf8"));
+    testCashuData = { mintUrl: TEST_CASHU_DEFAULT_MINT, proofs: [], pendingInvoices: [], history: [], ...loaded };
+    // Always enforce signet mint for test mode — never allow mainnet mint in test mode
+    if (!testCashuData.mintUrl || getMintNetwork(testCashuData.mintUrl) === "mainnet") {
+      testCashuData.mintUrl = TEST_CASHU_DEFAULT_MINT;
+    }
+  } catch { /* keep defaults */ }
+}
+
+if (fs.existsSync(SWAPS_FILE)) {
+  try { swaps = JSON.parse(fs.readFileSync(SWAPS_FILE, "utf8")); } catch { swaps = []; }
 }
 
 if (typeof appSettings.lastModelName === "string" && appSettings.lastModelName.trim()) {
@@ -326,11 +357,39 @@ function persistSettings() {
 
 // ─── Wallet ──────────────────────────────────────────────────────────────────
 
+function isTestMode() {
+  return Boolean(appSettings.walletTestMode);
+}
+
+function getActiveWalletData() {
+  return isTestMode() ? testWalletData : walletData;
+}
+
+function getActiveCashuData() {
+  return isTestMode() ? testCashuData : cashuData;
+}
+
+function persistActiveCashu() {
+  if (isTestMode()) {
+    fs.writeFileSync(TEST_CASHU_FILE, JSON.stringify(testCashuData, null, 2), "utf8");
+  } else {
+    fs.writeFileSync(CASHU_FILE, JSON.stringify(cashuData, null, 2), "utf8");
+  }
+}
+
 function persistWallet() {
   if (walletData) {
     fs.writeFileSync(WALLET_FILE, JSON.stringify(walletData, null, 2), "utf8");
   } else if (fs.existsSync(WALLET_FILE)) {
     fs.unlinkSync(WALLET_FILE);
+  }
+}
+
+function persistTestWallet() {
+  if (testWalletData) {
+    fs.writeFileSync(TEST_WALLET_FILE, JSON.stringify(testWalletData, null, 2), "utf8");
+  } else if (fs.existsSync(TEST_WALLET_FILE)) {
+    fs.unlinkSync(TEST_WALLET_FILE);
   }
 }
 
@@ -368,24 +427,69 @@ function createWallet() {
   return { address: addresses[0], mnemonic, addresses };
 }
 
+function createTestWallet() {
+  const { generateMnemonic, mnemonicToSeedSync } = require("@scure/bip39");
+  const { wordlist } = require("@scure/bip39/wordlists/english");
+  const { HDKey } = require("@scure/bip32");
+  const { sha256 } = require("@noble/hashes/sha256");
+  const { ripemd160 } = require("@noble/hashes/ripemd160");
+  const { bech32 } = require("@scure/base");
+
+  const mnemonic = generateMnemonic(wordlist, 128);
+  const seed = mnemonicToSeedSync(mnemonic);
+  const root = HDKey.fromMasterSeed(seed);
+
+  const addresses = [];
+  for (let i = 0; i < 5; i++) {
+    const child = root.derive(`m/84'/1'/0'/0/${i}`);
+    const pubkey = child.publicKey;
+    const pubkeyHash = ripemd160(sha256(pubkey));
+    const words5 = bech32.toWords(pubkeyHash);
+    addresses.push(bech32.encode("tb", [0, ...words5]));
+  }
+
+  testWalletData = {
+    address: addresses[0],
+    addresses,
+    derivationPath: "m/84'/1'/0'/0/0",
+    network: "testnet",
+    type: "P2WPKH",
+    createdAt: new Date().toISOString(),
+    mnemonic,
+  };
+  persistTestWallet();
+  return { address: addresses[0], mnemonic, addresses };
+}
+
 function getWalletPayload() {
-  if (!walletData) return { configured: false };
+  const data = getActiveWalletData();
+  if (!data) {
+    return {
+      configured: false,
+      testMode: isTestMode(),
+    };
+  }
   return {
     configured: true,
-    address: walletData.address,
-    addresses: walletData.addresses || [walletData.address],
-    derivationPath: walletData.derivationPath,
-    network: walletData.network,
-    type: walletData.type,
-    createdAt: walletData.createdAt,
-    mnemonic: walletData.mnemonic || null,
+    testMode: isTestMode(),
+    address: data.address,
+    addresses: data.addresses || [data.address],
+    derivationPath: data.derivationPath,
+    network: data.network,
+    type: data.type,
+    createdAt: data.createdAt,
+    mnemonic: data.mnemonic || null,
   };
+}
+
+function getMempoolBase() {
+  return isTestMode() ? "https://mutinynet.com/api" : "https://mempool.space/api";
 }
 
 async function fetchBtcBalance(address) {
   const https = require("https");
   return new Promise((resolve) => {
-    const url = `https://mempool.space/api/address/${encodeURIComponent(address)}`;
+    const url = `${getMempoolBase()}/address/${encodeURIComponent(address)}`;
     const req = https.get(url, { timeout: 8000 }, (res) => {
       let body = "";
       res.on("data", (chunk) => { body += chunk; });
@@ -410,7 +514,7 @@ async function fetchBtcBalance(address) {
 async function fetchBtcTransactions(address) {
   const https = require("https");
   return new Promise((resolve) => {
-    const url = `https://mempool.space/api/address/${encodeURIComponent(address)}/txs`;
+    const url = `${getMempoolBase()}/address/${encodeURIComponent(address)}/txs`;
     const req = https.get(url, { timeout: 10000 }, (res) => {
       let body = "";
       res.on("data", (chunk) => { body += chunk; });
@@ -457,69 +561,107 @@ function persistCashu() {
 }
 
 function getCashuBalance() {
-  return (cashuData.proofs || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+  return (getActiveCashuData().proofs || []).reduce((sum, p) => sum + (p.amount || 0), 0);
 }
 
 function getCashuPayload() {
+  const cd = getActiveCashuData();
   return {
-    configured: Boolean(cashuData.mintUrl),
-    mintUrl: cashuData.mintUrl || null,
+    configured: Boolean(cd.mintUrl),
+    mintUrl: cd.mintUrl || null,
     balance: getCashuBalance(),
-    proofCount: (cashuData.proofs || []).length,
-    pendingInvoices: (cashuData.pendingInvoices || []).map((inv) => ({
+    proofCount: (cd.proofs || []).length,
+    pendingInvoices: (cd.pendingInvoices || []).map((inv) => ({
       hash: inv.hash,
       amount: inv.amount,
       pr: inv.pr,
       createdAt: inv.createdAt,
     })),
-    history: (cashuData.history || []).slice(0, 30),
+    history: (cd.history || []).slice(0, 30),
+    testMode: isTestMode(),
   };
 }
 
 function addCashuHistory(entry) {
-  cashuData.history = cashuData.history || [];
-  cashuData.history.unshift({ ...entry, timestamp: new Date().toLocaleString() });
-  if (cashuData.history.length > 100) cashuData.history = cashuData.history.slice(0, 100);
+  const cd = getActiveCashuData();
+  cd.history = cd.history || [];
+  cd.history.unshift({ ...entry, timestamp: new Date().toLocaleString() });
+  if (cd.history.length > 100) cd.history = cd.history.slice(0, 100);
 }
 
+// Cache wallet instances per mintUrl to avoid hitting /keys on every call
+const _cashuWalletCache = new Map();
+function _cashuWalletCacheKey() {
+  return `${isTestMode() ? "test" : "prod"}:${getActiveCashuData().mintUrl}`;
+}
 async function cashuGetWallet() {
   const { CashuMint, CashuWallet } = require("@cashu/cashu-ts");
-  if (!cashuData.mintUrl) throw new Error("No mint configured");
-  const mint = new CashuMint(cashuData.mintUrl);
+  const cd = getActiveCashuData();
+  if (!cd.mintUrl) throw new Error("No mint configured");
+  const key = _cashuWalletCacheKey();
+  if (_cashuWalletCache.has(key)) {
+    return _cashuWalletCache.get(key);
+  }
+  const mint = new CashuMint(cd.mintUrl);
   const wallet = new CashuWallet(mint);
-  await wallet.initKeys();
-  return { wallet, mint };
+  const result = { wallet, mint };
+  _cashuWalletCache.set(key, result);
+  return result;
+}
+function cashuInvalidateWalletCache() {
+  _cashuWalletCache.clear();
 }
 
 async function cashuSetMint(mintUrl) {
   const { CashuMint } = require("@cashu/cashu-ts");
   const mint = new CashuMint(mintUrl.trim());
   const info = await mint.getInfo();
-  cashuData.mintUrl = mintUrl.trim();
-  cashuData.proofs = [];
-  cashuData.pendingInvoices = [];
-  persistCashu();
-  return { ok: true, name: info.name, description: info.description, mintUrl: cashuData.mintUrl };
+  const cd = getActiveCashuData();
+  cd.mintUrl = mintUrl.trim();
+  cd.proofs = [];
+  cd.pendingInvoices = [];
+  cashuInvalidateWalletCache();
+  persistActiveCashu();
+  return { ok: true, name: info.name, description: info.description, mintUrl: cd.mintUrl };
 }
 
 async function cashuCreateInvoice(amount) {
   const { wallet } = await cashuGetWallet();
   const { pr, hash } = await wallet.requestMint(amount);
-  cashuData.pendingInvoices = cashuData.pendingInvoices || [];
-  cashuData.pendingInvoices.push({ hash, amount, pr, createdAt: new Date().toISOString() });
-  persistCashu();
+  const cd = getActiveCashuData();
+
+  const invoiceNet = detectInvoiceNetwork(pr);
+  const mintNet = getMintNetwork(cd.mintUrl);
+  console.log(`[cashu] invoice created: prefix=${pr.slice(0, 8)} invoiceNet=${invoiceNet} mintNet=${mintNet} mint=${cd.mintUrl}`);
+  if (isTestMode() && invoiceNet === "mainnet") {
+    throw new Error(
+      `Your test mint (${cd.mintUrl}) is a mainnet mint — it generates real Bitcoin invoices (lnbc...). ` +
+      `In test mode you need a signet mint. Go to Settings and set the Cashu mint to https://cashu.mutinynet.com`
+    );
+  }
+  if (invoiceNet !== "unknown" && invoiceNet !== mintNet) {
+    throw new Error(
+      `Mint network mismatch: mint ${cd.mintUrl} is configured as ${mintNet} but generated a ${invoiceNet} invoice (${pr.slice(0, 10)}...). ` +
+      `For mutinynet/signet faucet you need a mint that generates lntbs invoices.`
+    );
+  }
+
+  cd.pendingInvoices = cd.pendingInvoices || [];
+  cd.pendingInvoices.push({ hash, amount, pr, createdAt: new Date().toISOString() });
+  persistActiveCashu();
   return { pr, hash, amount };
 }
 
 async function cashuCheckInvoice(hash) {
   const { wallet } = await cashuGetWallet();
-  const pending = (cashuData.pendingInvoices || []).find((i) => i.hash === hash);
+  const cd = getActiveCashuData();
+  const pending = (cd.pendingInvoices || []).find((i) => i.hash === hash);
   if (!pending) throw new Error("Invoice not found");
   const { proofs } = await wallet.requestTokens(pending.amount, hash);
-  cashuData.proofs = [...(cashuData.proofs || []), ...proofs];
-  cashuData.pendingInvoices = (cashuData.pendingInvoices || []).filter((i) => i.hash !== hash);
+  cd.proofs = [...(cd.proofs || []), ...proofs];
+  cd.pendingInvoices = (cd.pendingInvoices || []).filter((i) => i.hash !== hash);
   addCashuHistory({ direction: "Received", amount: pending.amount, unit: "sats", peer: "Lightning deposit", status: "Confirmed" });
-  persistCashu();
+  persistActiveCashu();
   return { balance: getCashuBalance(), amount: pending.amount };
 }
 
@@ -527,10 +669,11 @@ async function cashuSendToken(amount) {
   const { wallet } = await cashuGetWallet();
   const { getEncodedToken } = require("@cashu/cashu-ts");
   if (getCashuBalance() < amount) throw new Error(`Insufficient balance (have ${getCashuBalance()} sats)`);
-  const { send, returnChange } = await wallet.send(amount, cashuData.proofs);
-  cashuData.proofs = returnChange || [];
-  persistCashu();
-  const token = getEncodedToken({ token: [{ mint: cashuData.mintUrl, proofs: send }] });
+  const cd = getActiveCashuData();
+  const { send, returnChange } = await wallet.send(amount, cd.proofs);
+  cd.proofs = returnChange || [];
+  persistActiveCashu();
+  const token = getEncodedToken({ token: [{ mint: cd.mintUrl, proofs: send }] });
   return { token, amount };
 }
 
@@ -541,34 +684,113 @@ async function cashuReceiveToken(tokenString) {
   const mint = new CashuMint(tokenMintUrl);
   const wallet = new CashuWallet(mint);
   await wallet.initKeys();
-  const newProofs = await wallet.receive(decoded);
+  const receiveResult = await wallet.receive(decoded);
+  const newProofs = receiveResult.token.token.flatMap((entry) => entry.proofs);
   const amount = newProofs.reduce((s, p) => s + (p.amount || 0), 0);
-  if (tokenMintUrl === cashuData.mintUrl) {
-    cashuData.proofs = [...(cashuData.proofs || []), ...newProofs];
-  } else {
-    // Different mint — store proofs anyway, user can swap later
-    cashuData.proofs = [...(cashuData.proofs || []), ...newProofs];
-    if (!cashuData.mintUrl) cashuData.mintUrl = tokenMintUrl;
-  }
+  const cd = getActiveCashuData();
+  cd.proofs = [...(cd.proofs || []), ...newProofs];
+  if (!cd.mintUrl) cd.mintUrl = tokenMintUrl;
   addCashuHistory({ direction: "Received", amount, unit: "sats", peer: "Cashu token", status: "Confirmed", mintUrl: tokenMintUrl });
-  persistCashu();
+  persistActiveCashu();
   return { amount, balance: getCashuBalance(), mintUrl: tokenMintUrl };
+}
+
+function detectInvoiceNetwork(pr) {
+  const lower = (pr || "").toLowerCase();
+  if (lower.startsWith("lntbs")) return "signet";
+  if (lower.startsWith("lntb")) return "testnet";
+  if (lower.startsWith("lnbc")) return "mainnet";
+  return "unknown";
+}
+
+function getMintNetwork(mintUrl) {
+  const lower = (mintUrl || "").toLowerCase();
+  if (lower.includes("mutinynet") || lower.includes("signet")) return "signet";
+  if (lower.includes("testnet")) return "testnet";
+  return "mainnet";
 }
 
 async function cashuMeltToLightning(pr) {
   const { wallet } = await cashuGetWallet();
   const { getDecodedLnInvoice } = require("@cashu/cashu-ts");
+  const cd = getActiveCashuData();
+
+  // Validate invoice network against the mint's network before contacting it
+  const invoiceNet = detectInvoiceNetwork(pr);
+  const mintNet = getMintNetwork(cd.mintUrl);
+  if (invoiceNet !== "unknown" && invoiceNet !== mintNet) {
+    const hint = mintNet === "signet"
+      ? `Your mint (${cd.mintUrl}) is on signet/mutinynet — paste a signet invoice (starts with lntbs).`
+      : `Your mint (${cd.mintUrl}) is on mainnet — paste a mainnet invoice (starts with lnbc).`;
+    throw new Error(`Network mismatch: invoice is for ${invoiceNet} but mint is on ${mintNet}. ${hint}`);
+  }
+
   const fee = await wallet.getFee(pr);
   const decoded = getDecodedLnInvoice(pr);
   const amount = Math.round(Number(decoded.sections.find((s) => s.name === "amount")?.value || 0) / 1000);
   const totalNeeded = amount + fee;
   if (getCashuBalance() < totalNeeded) throw new Error(`Need ${totalNeeded} sats (incl. ${fee} fee), have ${getCashuBalance()}`);
-  const { send } = await wallet.send(totalNeeded, cashuData.proofs);
-  const result = await wallet.payLnInvoice(pr, send);
-  cashuData.proofs = result.change || [];
-  addCashuHistory({ direction: "Sent", amount, unit: "sats", peer: "Lightning payment", status: result.isPaid ? "Confirmed" : "Failed" });
-  persistCashu();
-  return { isPaid: result.isPaid, amount, fee, balance: getCashuBalance() };
+
+  const { send, returnChange } = await wallet.send(totalNeeded, cd.proofs);
+  // Save returnChange immediately — if payLnInvoice throws, these proofs are not lost
+  cd.proofs = returnChange || [];
+  persistActiveCashu();
+
+  try {
+    const result = await wallet.payLnInvoice(pr, send);
+    if (result.change?.length) {
+      cd.proofs = [...cd.proofs, ...result.change];
+    }
+    addCashuHistory({ direction: "Sent", amount, unit: "sats", peer: "Lightning payment", status: result.isPaid ? "Confirmed" : "Failed" });
+    persistActiveCashu();
+    return { isPaid: result.isPaid, amount, fee, balance: getCashuBalance() };
+  } catch (e) {
+    // Intercept the opaque gRPC network error from LND and give a human-readable message
+    if (e.message && e.message.toLowerCase().includes("active network")) {
+      throw new Error(`Network mismatch: the invoice network doesn't match your Cashu mint's network (${cd.mintUrl}). Check the invoice and your mint URL in Settings.`);
+    }
+    throw e;
+  }
+}
+
+async function waitForCashuInvoicePayment(hash, timeoutMs = 30000, pollMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "Invoice not paid yet";
+  while (Date.now() < deadline) {
+    try {
+      return await cashuCheckInvoice(hash);
+    } catch (error) {
+      lastError = error?.message || lastError;
+      await sleep(pollMs);
+    }
+  }
+  throw new Error(lastError);
+}
+
+async function callMutinynetFaucet(path, body) {
+  const https = require("https");
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const options = {
+      hostname: "faucet.mutinynet.com",
+      path,
+      method: "POST",
+      timeout: 15000,
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
+    };
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+        catch { resolve({ status: res.statusCode, body: data }); }
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(); reject(new Error("Faucet request timed out")); });
+    req.write(payload);
+    req.end();
+  });
 }
 
 async function generateLightningQr(pr) {
@@ -577,6 +799,153 @@ async function generateLightningQr(pr) {
 }
 
 // ─── End Cashu ────────────────────────────────────────────────────────────────
+
+// ─── Swap Tracking ──────────────────────────────────────────────────────────────
+
+function persistSwaps() {
+  fs.writeFileSync(SWAPS_FILE, JSON.stringify(swaps, null, 2), "utf8");
+}
+
+function getSwapsPayload() {
+  return swaps.map((s) => ({
+    id: s.id,
+    type: s.type,
+    status: s.status,
+    statusLabel: s.statusLabel || s.status,
+    amount: s.amount,
+    lockupAddress: s.lockupAddress || null,
+    expectedAmount: s.expectedAmount || null,
+    onchainAmount: s.onchainAmount || null,
+    receiverAddress: s.receiverAddress || null,
+    createdAt: s.createdAt,
+    error: s.error || null,
+  }));
+}
+
+function createSwapId(prefix) {
+  const { randomUUID } = require("crypto");
+  return `${prefix}-${randomUUID()}`;
+}
+
+function getInvoiceAmountFromBolt11(pr) {
+  const { getDecodedLnInvoice } = require("@cashu/cashu-ts");
+  const decoded = getDecodedLnInvoice(pr);
+  return Math.round(Number(decoded.sections.find((section) => section.name === "amount")?.value || 0) / 1000);
+}
+
+async function startSubmarineSwap(amount) {
+  if (!getActiveCashuData().mintUrl) throw new Error("Set a Cashu mint first (Settings tab)");
+
+  const { pr, hash } = await cashuCreateInvoice(amount);
+  const swap = {
+    id: createSwapId("swap-in"),
+    type: "btc-to-cashu",
+    status: "invoice_pending",
+    statusLabel: isTestMode()
+      ? "Requesting Mutinynet Lightning payment..."
+      : "Lightning invoice created. Pay it to receive Cashu.",
+    amount,
+    invoiceHash: hash,
+    invoice: pr,
+    createdAt: new Date().toISOString(),
+  };
+
+  swaps.unshift(swap);
+  persistSwaps();
+  broadcast("swaps", getSwapsPayload());
+
+  if (isTestMode()) {
+    swap.statusLabel = "Lightning invoice created. Pay it with the Mutinynet faucet site or any Lightning wallet.";
+    persistSwaps();
+    broadcast("swaps", getSwapsPayload());
+    return {
+      ...swap,
+      pr,
+      hash,
+      autoPaid: false,
+      faucetHint: "Mutinynet faucet Lightning payouts require a browser session token, so auto-pay is not available from the app backend.",
+    };
+  }
+
+  return { ...swap, pr, hash, autoPaid: false };
+}
+
+async function startReverseSwap(amount, receiverAddress) {
+  const pr = String(receiverAddress || "").trim();
+  if (!pr) throw new Error("Lightning invoice required");
+
+  const invoiceAmount = getInvoiceAmountFromBolt11(pr);
+  if (!invoiceAmount || invoiceAmount < 1) throw new Error("Amountless Lightning invoices are not supported");
+  if (amount && amount !== invoiceAmount) {
+    throw new Error(`Invoice amount is ${invoiceAmount} sats, but form amount is ${amount} sats`);
+  }
+
+  const swap = {
+    id: createSwapId("swap-out"),
+    type: "cashu-to-btc",
+    status: "payment_pending",
+    statusLabel: "Paying Lightning invoice...",
+    amount: invoiceAmount,
+    receiverAddress: pr,
+    createdAt: new Date().toISOString(),
+  };
+
+  swaps.unshift(swap);
+  persistSwaps();
+  broadcast("swaps", getSwapsPayload());
+
+  try {
+    const meltResult = await cashuMeltToLightning(pr);
+    swap.status = meltResult.isPaid ? "done" : "payment_failed";
+    swap.statusLabel = meltResult.isPaid
+      ? `Done - paid ${meltResult.amount} sats over Lightning`
+      : "Lightning payment failed";
+    swap.fee = meltResult.fee;
+    persistSwaps();
+    broadcast("swaps", getSwapsPayload());
+    broadcast("cashu", getCashuPayload());
+    return { ...swap, ...meltResult };
+  } catch (error) {
+    swap.status = "payment_failed";
+    swap.statusLabel = `Payment failed: ${error.message}`;
+    swap.error = error.message;
+    persistSwaps();
+    broadcast("swaps", getSwapsPayload());
+    throw error;
+  }
+}
+
+async function pollSwap(swap) {
+  if (swap.type === "btc-to-cashu" && !["done", "expired", "payment_failed"].includes(swap.status) && swap.invoiceHash) {
+    // Expire swaps whose invoice is no longer in pendingInvoices (already cleaned up or never funded)
+    const cd = getActiveCashuData();
+    const stillPending = (cd.pendingInvoices || []).some((i) => i.hash === swap.invoiceHash);
+    if (!stillPending) {
+      swap.status = "expired";
+      swap.statusLabel = "Invoice expired or already processed";
+      persistSwaps();
+      return;
+    }
+    try {
+      const result = await cashuCheckInvoice(swap.invoiceHash);
+      swap.status = "done";
+      swap.statusLabel = `Done - received ${result.amount} sats in Cashu`;
+      swap.receivedAmount = result.amount;
+      persistSwaps();
+      broadcast("cashu", getCashuPayload());
+    } catch {
+      // Not paid yet — leave status as-is
+    }
+  }
+}
+
+function startSwapPolling() {
+  setInterval(async () => {
+    const active = swaps.filter((s) => !["done", "expired", "payment_failed"].includes(s.status));
+    for (const swap of active) await pollSwap(swap);
+    if (active.length) broadcast("swaps", getSwapsPayload());
+  }, 12000);
+}
 
 function clampNumber(value, min, max, fallback) {
   const num = Number(value);
@@ -2453,6 +2822,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         meshtastic: getMeshtasticStatusPayload(),
         llm: { ...llmStatus, health, availableModels: listAvailableModels(), currentModel: currentModelName },
+        walletTestMode: isTestMode(),
       });
     }
 
@@ -2597,6 +2967,9 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const mintUrl = String(body.mintUrl || "").trim();
       if (!mintUrl) return sendJson(res, 400, { error: "mintUrl required" });
+      if (isTestMode() && getMintNetwork(mintUrl) === "mainnet") {
+        return sendJson(res, 400, { error: `Test mode requires a signet/mutinynet mint, not a mainnet mint. Use ${TEST_CASHU_DEFAULT_MINT}` });
+      }
       try {
         const result = await cashuSetMint(mintUrl);
         return sendJson(res, 200, result);
@@ -2637,7 +3010,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const result = await cashuSendToken(amount);
         addCashuHistory({ direction: "Sent", amount, unit: "sats", peer: body.peer || "Cashu token", status: "Token created" });
-        persistCashu();
+        persistActiveCashu();
         return sendJson(res, 200, result);
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
@@ -2672,36 +3045,117 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, getWalletPayload());
     }
 
+    // ── Swap endpoints ──────────────────────────────────────────────────────
+    if (req.method === "GET" && req.url === "/api/swap/list") {
+      return sendJson(res, 200, getSwapsPayload());
+    }
+
+    if (req.method === "POST" && req.url === "/api/swap/btc-to-cashu") {
+      const body = await readJson(req);
+      const amount = Number(body.amount);
+      if (!amount || amount < 1000) return sendJson(res, 400, { error: "Minimum 1000 sats" });
+      try {
+        const swap = await startSubmarineSwap(amount);
+        if (swap.pr && !swap.qr) swap.qr = await generateLightningQr(swap.pr);
+        return sendJson(res, 200, swap);
+      } catch (e) {
+        return sendJson(res, 502, { error: e.message });
+      }
+    }
+
+    if (req.method === "POST" && req.url === "/api/swap/cashu-to-btc") {
+      const body = await readJson(req);
+      const receiverAddress = String(body.address || "").trim();
+      if (!receiverAddress) return sendJson(res, 400, { error: "Lightning invoice required" });
+      try {
+        const swap = await startReverseSwap(0, receiverAddress);
+        return sendJson(res, 200, swap);
+      } catch (e) {
+        return sendJson(res, 502, { error: e.message });
+      }
+    }
+
+    if (req.method === "DELETE" && req.url.startsWith("/api/swap/")) {
+      const id = req.url.split("/api/swap/")[1];
+      swaps = swaps.filter((s) => s.id !== id);
+      persistSwaps();
+      return sendJson(res, 200, { ok: true });
+    }
+    // ── End Swap endpoints ──────────────────────────────────────────────────
+
+    if (req.method === "POST" && req.url === "/api/wallet/testmode") {
+      const body = await readJson(req);
+      const enable = Boolean(body.enabled);
+      appSettings.walletTestMode = enable;
+      // Enforce signet mint when entering test mode
+      if (enable && getMintNetwork(testCashuData.mintUrl) === "mainnet") {
+        testCashuData.mintUrl = TEST_CASHU_DEFAULT_MINT;
+        testCashuData.proofs = [];
+        testCashuData.pendingInvoices = [];
+        fs.writeFileSync(TEST_CASHU_FILE, JSON.stringify(testCashuData, null, 2), "utf8");
+      }
+      cashuInvalidateWalletCache();
+      persistSettings();
+      broadcast("status", { walletTestMode: enable });
+      return sendJson(res, 200, { testMode: enable, testMintUrl: testCashuData.mintUrl });
+    }
+    if (req.method === "POST" && req.url === "/api/wallet/faucet") {
+      if (!isTestMode()) return sendJson(res, 403, { error: "Faucet only available in test mode" });
+      const activeWallet = getActiveWalletData();
+      return sendJson(res, 400, {
+        error: "Mutinynet faucet requests now require a browser session token. Open faucet.mutinynet.com in a browser and use your test wallet address or Lightning invoice there.",
+        address: activeWallet?.address || null,
+      });
+    }
+
     if (req.method === "POST" && req.url === "/api/wallet/create") {
-      if (walletData) {
+      const activeData = getActiveWalletData();
+      if (activeData) {
         return sendJson(res, 409, { error: "Wallet already exists. Reset first." });
       }
-      const result = createWallet();
+      const result = isTestMode() ? createTestWallet() : createWallet();
       return sendJson(res, 200, result);
     }
 
     if (req.method === "GET" && req.url === "/api/wallet/balance") {
-      if (!walletData) return sendJson(res, 404, { error: "No wallet" });
-      const balance = await fetchBtcBalance(walletData.address);
+      const activeWallet = getActiveWalletData();
+      if (!activeWallet) return sendJson(res, 404, { error: "No wallet" });
+      const balance = await fetchBtcBalance(activeWallet.address);
       if (!balance) return sendJson(res, 502, { error: "Could not reach mempool.space" });
       return sendJson(res, 200, balance);
     }
 
     if (req.method === "GET" && req.url === "/api/wallet/transactions") {
-      if (!walletData) return sendJson(res, 404, { error: "No wallet" });
-      const txs = await fetchBtcTransactions(walletData.address);
+      const activeWallet = getActiveWalletData();
+      if (!activeWallet) return sendJson(res, 404, { error: "No wallet" });
+      const txs = await fetchBtcTransactions(activeWallet.address);
       return sendJson(res, 200, { transactions: txs });
     }
 
     if (req.method === "GET" && req.url === "/api/wallet/qr") {
-      if (!walletData) return sendJson(res, 404, { error: "No wallet" });
-      const qr = await generateWalletQr(walletData.address);
+      const activeWallet = getActiveWalletData();
+      if (!activeWallet) return sendJson(res, 404, { error: "No wallet" });
+      const qr = await generateWalletQr(activeWallet.address);
+      return sendJson(res, 200, { qr });
+    }
+
+    if (req.method === "GET" && req.url.startsWith("/api/qr")) {
+      const urlObj = new URL(req.url, "http://localhost");
+      const data = urlObj.searchParams.get("data") || "";
+      if (!data) return sendJson(res, 400, { error: "data param required" });
+      const QRCode = require("qrcode");
+      const qr = await QRCode.toDataURL(data, { width: 180, margin: 1, color: { dark: "#f2f8ff", light: "#151d27" } });
       return sendJson(res, 200, { qr });
     }
 
     if (req.method === "POST" && req.url === "/api/wallet/reset") {
-      walletData = null;
-      persistWallet();
+      if (isTestMode()) {
+        testWalletData = null;
+        persistTestWallet();
+      } else {
+        walletData = null;
+        persistWallet();
+      }
       return sendJson(res, 200, { ok: true });
     }
 
@@ -2792,4 +3246,7 @@ server.listen(PORT, HOST, () => {
   startLlamaServer();
   startBridge();
   openBrowser();
+  startSwapPolling();
 });
+
+

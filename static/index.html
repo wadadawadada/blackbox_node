@@ -336,8 +336,10 @@
     <section class="modal-panel panel wallet-panel" role="dialog" aria-modal="true" aria-labelledby="walletModalTitle">
       <div class="panel-head modal-head wallet-modal-header">
         <div>
-          <h2 id="walletModalTitle">MESH &amp; CASH WALLET</h2>
-          <div class="chat-subtitle">Offline-friendly crypto tools for Meshtastic nodes</div>
+          <div class="wallet-header-title-row">
+            <h2 id="walletModalTitle">MESH &amp; CASH WALLET</h2>
+            <span id="walletTestModeBadge" class="wallet-test-badge" hidden>TEST</span>
+          </div>
         </div>
         <button id="walletModalClose" type="button" class="modal-close" aria-label="Close wallet modal">X</button>
       </div>
@@ -355,49 +357,28 @@
         </div>
 
         <div class="wallet-quick-actions wallet-toolbar" aria-label="Wallet toolbar">
-          <button type="button" class="wallet-quick-button is-active" data-wallet-view="home" aria-label="Open home screen" title="Home">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M4 10.5L12 4l8 6.5"></path>
-              <path d="M6 9.5V20h12V9.5"></path>
-            </svg>
+          <button type="button" class="wallet-quick-button is-active" data-wallet-view="home" aria-label="Home" title="Home">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 10.5L12 4l8 6.5"/><path d="M6 9.5V20h12V9.5"/></svg>
             <span>Home</span>
           </button>
-          <button type="button" class="wallet-quick-button" data-wallet-view="send" aria-label="Open send screen" title="Send">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M21 3L10 14"></path>
-              <path d="M21 3l-7 18l-4-7l-7-4z"></path>
-            </svg>
-            <span>Send</span>
-          </button>
-          <button type="button" class="wallet-quick-button" data-wallet-view="receive" aria-label="Open receive screen" title="Receive">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M12 4v9"></path>
-              <path d="M8.5 10.5L12 14l3.5-3.5"></path>
-              <path d="M5 18h14"></path>
-              <path d="M8 20h8"></path>
-            </svg>
+          <button type="button" class="wallet-quick-button" data-wallet-view="receive" aria-label="Receive" title="Receive">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M3 19h18"/></svg>
             <span>Receive</span>
           </button>
-          <button type="button" class="wallet-quick-button" data-wallet-view="fund" aria-label="Open fund screen" title="Fund">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <rect x="3" y="6" width="18" height="12" rx="2"></rect>
-              <path d="M16 12h.01"></path>
-              <path d="M3 9h18"></path>
-            </svg>
-            <span>Fund</span>
+          <button type="button" class="wallet-quick-button" data-wallet-view="send" aria-label="Send" title="Send">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21V9"/><path d="M8 13l4-4 4 4"/><path d="M3 5h18"/></svg>
+            <span>Send</span>
           </button>
-          <button type="button" class="wallet-quick-button" data-wallet-view="history" aria-label="Open activity screen" title="Activity">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M12 7v5l3 3"></path>
-              <circle cx="12" cy="12" r="9"></circle>
-            </svg>
+          <button type="button" class="wallet-quick-button" data-wallet-view="swap" aria-label="Swap" title="Swap">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+            <span>Swap</span>
+          </button>
+          <button type="button" class="wallet-quick-button" data-wallet-view="history" aria-label="Activity" title="Activity">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 7v5l3 3"/><circle cx="12" cy="12" r="9"/></svg>
             <span>Activity</span>
           </button>
-          <button type="button" class="wallet-quick-button" data-wallet-view="settings" aria-label="Open settings screen" title="Settings">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2a1 1 0 0 0-.6.9V20a2 2 0 0 1-4 0v-.2a1 1 0 0 0-.6-.9a1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1a1 1 0 0 0-.9-.6H4a2 2 0 0 1 0-4h.2a1 1 0 0 0 .9-.6a1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2h.1a1 1 0 0 0 .6-.9V4a2 2 0 0 1 4 0v.2a1 1 0 0 0 .6.9a1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1v.1a1 1 0 0 0 .9.6H20a2 2 0 0 1 0 4h-.2a1 1 0 0 0-.9.6z"></path>
-            </svg>
+          <button type="button" class="wallet-quick-button" data-wallet-view="settings" aria-label="Settings" title="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2a1 1 0 0 0-.6.9V20a2 2 0 0 1-4 0v-.2a1 1 0 0 0-.6-.9a1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1a1 1 0 0 0-.9-.6H4a2 2 0 0 1 0-4h.2a1 1 0 0 0 .9-.6a1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2h.1a1 1 0 0 0 .6-.9V4a2 2 0 0 1 4 0v.2a1 1 0 0 0 .6.9a1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1v.1a1 1 0 0 0 .9.6H20a2 2 0 0 1 0 4h-.2a1 1 0 0 0-.9.6z"/></svg>
             <span>Settings</span>
           </button>
         </div>
@@ -409,7 +390,7 @@
                 <div class="wallet-balance-label">Cashu Balance (spendable off-grid)</div>
                 <div class="wallet-balance-value-row">
                   <div id="cashuBalanceValue" class="wallet-balance-value">—</div>
-                  <button type="button" class="wallet-fund-shortcut" data-wallet-view="fund">Fund</button>
+                  <button type="button" class="wallet-fund-shortcut" data-wallet-view="swap">Swap</button>
                 </div>
                 <div class="wallet-balance-sub-row">
                   <span id="cashuBalanceSub" class="wallet-balance-sub">No mint set</span>
@@ -452,6 +433,85 @@
             </div>
           </section>
 
+          <section id="walletPanelSwap" class="wallet-view-panel" hidden>
+
+            <!-- Card A: Lightning → Cashu -->
+            <div class="wallet-fund-card">
+              <div class="modal-label">Lightning &#x2192; Cashu</div>
+              <div class="wallet-hint" style="margin-bottom:8px">
+                Enter an amount and click <strong>Get invoice</strong>. Pay the QR that appears below, then your balance updates automatically.
+                <span id="swapLnTestHint" hidden> &mdash; TEST MODE: this is a signet invoice, pay at <a href="https://faucet.mutinynet.com" target="_blank" rel="noopener noreferrer" style="color:var(--success)">faucet.mutinynet.com</a> (Lightning tab). Mainnet wallets cannot pay it.</span>
+              </div>
+              <div class="wallet-balance-pill" style="margin-bottom:8px">
+                <span>Wallet BTC:</span> <strong id="swapBtcOnchainBalance">—</strong>
+              </div>
+              <div class="wallet-form-grid">
+                <label class="wallet-field" for="swapLnAmount">
+                  <span>Amount (sats)</span>
+                  <input id="swapLnAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="10000">
+                </label>
+                <div class="wallet-form-actions wallet-field-wide">
+                  <button id="swapLnInvoiceButton" type="button">Get invoice</button>
+                  <div id="swapLnStatus" class="device-status-text" role="status" aria-live="polite"></div>
+                </div>
+              </div>
+              <div id="swapLnBlock" hidden>
+                <div class="wallet-hint" style="margin:6px 0;color:var(--ink)">Pay the invoice below &mdash; balance updates automatically.</div>
+                <div class="wallet-qr-block" style="padding:6px 0">
+                  <div class="wallet-qr-container">
+                    <img id="swapLnQr" class="wallet-qr-img" alt="Lightning invoice QR">
+                  </div>
+                </div>
+                <div class="wallet-inline-row" style="margin-top:4px">
+                  <input id="swapLnPr" type="text" readonly style="font-size:8px">
+                  <button id="swapLnCopyBtn" type="button">Copy</button>
+                </div>
+                <div class="wallet-form-actions" style="margin-top:6px">
+                  <button id="swapLnCheckButton" type="button" class="wallet-create-btn">Check now</button>
+                  <div id="swapLnCheckStatus" class="device-status-text" role="status" aria-live="polite"></div>
+                </div>
+              </div>
+              <!-- stubs to avoid null-ref errors from existing const declarations -->
+              <form id="swapBtcToCashuForm" hidden></form>
+              <div id="swapBtcStatus" hidden aria-live="polite"></div>
+            </div>
+
+            <!-- Card B: Cashu → Lightning -->
+            <div class="wallet-fund-card">
+              <div class="modal-label">Cashu &#x2192; Lightning</div>
+              <div class="wallet-hint" style="margin-bottom:8px">
+                Paste a Lightning invoice to pay it from your Cashu balance. Amount is read from the invoice automatically.
+                <span id="swapCashuTestHint" hidden> &mdash; TEST MODE: paste a signet invoice (<strong>lntbs...</strong>). Mainnet invoices (<strong>lnbc...</strong>) will be rejected.</span>
+              </div>
+              <div class="wallet-balance-pill" style="margin-bottom:8px">
+                <span>Available:</span> <strong id="swapCashuAvailable">0 sats</strong>
+              </div>
+              <form id="swapCashuToBtcForm" class="wallet-form-grid">
+                <label class="wallet-field wallet-field-wide" for="swapCashuBtcAddr">
+                  <span>Lightning invoice</span>
+                  <input id="swapCashuBtcAddr" type="text" placeholder="lnbc...">
+                </label>
+                <div class="wallet-field" id="swapCashuAmountPreviewRow" style="display:none">
+                  <span style="color:var(--muted)">Invoice amount</span>
+                  <div id="swapCashuAmountPreview" style="font-size:10px"></div>
+                </div>
+                <div class="wallet-form-actions wallet-field-wide">
+                  <button type="submit">Pay invoice</button>
+                  <div id="swapCashuStatus" class="device-status-text" role="status" aria-live="polite"></div>
+                </div>
+              </form>
+              <!-- stub to avoid null-ref from existing const swapCashuAmount -->
+              <input id="swapCashuAmount" type="hidden">
+            </div>
+
+            <!-- Active Swaps -->
+            <div class="wallet-fund-card" id="activeSwapsCard" hidden>
+              <div class="modal-label">Active Swaps</div>
+              <div id="activeSwapsList" class="wallet-pending-list"></div>
+            </div>
+
+          </section>
+
           <section id="walletPanelSend" class="wallet-view-panel" aria-labelledby="walletSendTitle" hidden>
             <div class="wallet-screen-head">
               <div>
@@ -461,8 +521,8 @@
             </div>
 
             <div id="cashuSendNoMint" class="wallet-no-wallet-notice">
-              <p>No Cashu mint set. Go to Fund tab to configure.</p>
-              <button type="button" class="wallet-inline-action" data-wallet-view="fund">Go to Fund</button>
+              <p>No Cashu mint set. Configure in Settings.</p>
+              <button type="button" class="wallet-inline-action" data-wallet-view="settings">Go to Settings</button>
             </div>
 
             <div id="cashuSendContent" hidden>
@@ -575,19 +635,25 @@
             <div class="wallet-screen-head">
               <div>
                 <h3 id="walletFundTitle">Fund</h3>
-                <div class="wallet-home-subtitle">Top up via Lightning → Cashu</div>
-              </div>
-            </div>
-
-            <div class="wallet-fund-card">
+                <div class="wallet-home-subtitle">Top up via Lightning → Cashu</div>`r`n            </div>`r`n`r`n            <div class="wallet-fund-card">
               <div class="wallet-mint-label-row">
-                <div class="modal-label">1. Set Cashu mint</div>
-                <a href="https://audit.8333.space/" target="_blank" rel="noopener noreferrer" class="wallet-mint-dir-link">Browse mints ↗</a>
+                <div class="modal-label">1. Cashu mint</div>
+                <a id="cashuMintDirLink" href="https://audit.8333.space/" target="_blank" rel="noopener noreferrer" class="wallet-mint-dir-link">Browse mints ↗</a>
               </div>
-              <div class="wallet-hint" style="margin-bottom:6px">A mint converts Lightning sats into Cashu tokens you can spend off-grid.</div>
-              <div class="wallet-inline-row" style="grid-template-columns: minmax(0,1fr) auto">
-                <input id="cashuMintUrlInput" type="text" placeholder="https://mint.minibits.cash/Bitcoin" value="https://mint.minibits.cash/Bitcoin">
-                <button id="cashuSetMintButton" type="button">Set</button>
+              <!-- Test mode: locked to signet mint -->
+              <div id="cashuMintTestRow" hidden>
+                <div class="wallet-hint" style="margin-bottom:4px">Test mode uses the Mutinynet signet mint automatically.</div>
+                <div class="wallet-inline-row" style="grid-template-columns: minmax(0,1fr)">
+                  <input type="text" value="https://cashu.mutinynet.com" disabled style="opacity:0.6;cursor:default">
+                </div>
+              </div>
+              <!-- Prod mode: configurable -->
+              <div id="cashuMintProdRow">
+                <div class="wallet-hint" style="margin-bottom:6px">A mint converts Lightning sats into Cashu tokens you can spend off-grid.</div>
+                <div class="wallet-inline-row" style="grid-template-columns: minmax(0,1fr) auto">
+                  <input id="cashuMintUrlInput" type="text" placeholder="https://mint.minibits.cash/Bitcoin" value="https://mint.minibits.cash/Bitcoin">
+                  <button id="cashuSetMintButton" type="button">Set</button>
+                </div>
               </div>
               <div id="cashuMintStatus" class="device-status-text" role="status" aria-live="polite" style="margin-top:4px"></div>
               <div id="cashuMintInfo" class="wallet-mint-info" hidden></div>
@@ -619,15 +685,24 @@
                 <div class="wallet-form-actions" style="margin-top:6px">
                   <button id="cashuCheckInvoiceButton" type="button" class="wallet-create-btn">Check payment</button>
                   <div id="cashuCheckStatus" class="device-status-text" role="status" aria-live="polite"></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="wallet-fund-card">
+                </div>`r`n            </div>`r`n`r`n            <div class="wallet-fund-card">
               <div class="modal-label">Pending invoices</div>
               <div id="cashuPendingList" class="wallet-pending-list">
                 <div class="wallet-hint">No pending invoices</div>
               </div>
+            </div>
+
+            <div id="walletFaucetCard" class="wallet-fund-card wallet-faucet-card" hidden>
+              <div class="wallet-faucet-header">
+                <div class="modal-label">Testnet Faucet</div>
+                <span class="wallet-test-badge-inline">MUTINYNET</span>
+              </div>
+              <div class="wallet-hint" style="margin-bottom:8px">Mutinynet faucet requests now require a browser session. Use the website directly with your test wallet address or invoice.</div>
+              <div class="wallet-form-actions" style="gap:6px">
+                <button id="faucetAddressButton" type="button" class="wallet-faucet-btn">Show faucet instructions</button>
+                <a href="https://faucet.mutinynet.com" target="_blank" rel="noopener noreferrer" class="wallet-faucet-btn wallet-faucet-link">Pay invoice via web faucet ↗</a>
+              </div>
+              <div id="faucetStatus" class="device-status-text" role="status" aria-live="polite" style="margin-top:6px"></div>
             </div>
           </section>
 
@@ -659,8 +734,42 @@
             <div class="wallet-screen-head">
               <div>
                 <h3 id="walletSettingsTitle">Settings</h3>
-                <div class="wallet-home-subtitle">Wallet setup and preferences</div>
               </div>
+            </div>
+
+            <div class="wallet-fund-card wallet-testmode-card">
+              <div class="wallet-testmode-row">
+                <div>
+                  <div class="modal-label">Test mode</div>
+                </div>
+                <label class="wallet-toggle-switch" aria-label="Enable test mode">
+                  <input type="checkbox" id="walletTestModeToggle">
+                  <span class="wallet-toggle-track"><span class="wallet-toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="wallet-fund-card">
+              <div class="wallet-mint-label-row">
+                <div class="modal-label">Cashu Mint</div>
+                <a id="settingsMintDirLink" href="https://audit.8333.space/" target="_blank" rel="noopener noreferrer" class="wallet-mint-dir-link">Browse mints ↗</a>
+              </div>
+              <!-- Test mode: locked -->
+              <div id="settingsMintTestRow" hidden>
+                <div class="wallet-hint" style="margin-bottom:4px">Test mode uses the Mutinynet signet mint automatically — no configuration needed.</div>
+                <div class="wallet-inline-row" style="grid-template-columns: minmax(0,1fr)">
+                  <input type="text" value="https://cashu.mutinynet.com" disabled style="opacity:0.6;cursor:default">
+                </div>
+              </div>
+              <!-- Prod mode: configurable -->
+              <div id="settingsMintProdRow">
+                <div class="wallet-hint" style="margin-bottom:6px">A mint converts Lightning sats into Cashu tokens you can spend off-grid.</div>
+                <div class="wallet-inline-row" style="grid-template-columns: minmax(0,1fr) auto">
+                  <input id="settingsMintUrlInput" type="text" placeholder="https://mint.minibits.cash/Bitcoin" value="https://mint.minibits.cash/Bitcoin">
+                  <button id="settingsSetMintButton" type="button">Set</button>
+                </div>
+              </div>
+              <div id="settingsMintStatus" class="device-status-text" role="status" aria-live="polite" style="margin-top:4px"></div>
             </div>
 
             <div id="walletCreateBlock" class="wallet-create-block">
@@ -708,7 +817,6 @@
                   </button>
                 </div>
                 <div id="walletSeedRevealGrid" class="wallet-mnemonic-grid hidden" style="margin-top:6px"></div>
-                <div id="walletSeedNotAvailable" class="wallet-hint" style="margin-top:4px">Seed phrase is loaded from wallet.json on disk.</div>
               </div>
               <div class="wallet-form-actions" style="margin-top:8px">
                 <button id="walletResetButton" type="button" class="wallet-danger-btn">Delete wallet</button>
@@ -731,3 +839,7 @@
   <script src="/static/app.js" defer></script>
 </body>
 </html>
+
+
+
+
