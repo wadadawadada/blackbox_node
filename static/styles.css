@@ -996,6 +996,127 @@ button {
   padding: 12px;
 }
 
+.modal-panel--map {
+  width: min(960px, calc(100vw - 32px));
+  max-height: min(90vh, 800px);
+  height: min(90vh, 800px);
+}
+
+.nodes-map-container {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--edge-dark);
+}
+
+.nodes-map-container .leaflet-container {
+  background: #1a1f25;
+  font-family: "Press Start Local", monospace;
+  font-size: 10px;
+}
+
+.nodes-map-marker-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.nodes-map-marker-online {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--success);
+  border: 2px solid rgba(255,255,255,0.3);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.nodes-map-marker-offline {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #8b4a4a;
+  border: 2px solid rgba(255,255,255,0.2);
+}
+
+.nodes-map-label {
+  font-family: "Press Start Local", monospace;
+  font-size: 8px;
+  color: #e0e6ed;
+  text-shadow: 0 1px 3px #000, 0 0 6px #000;
+  letter-spacing: 0.03em;
+}
+
+.nodes-map-popup {
+  font-family: "Press Start Local", monospace;
+  font-size: 9px;
+  line-height: 1.5;
+  color: #c8d0d8;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nodes-map-popup-name {
+  font-size: 9px;
+  color: #e8f0f8;
+  font-weight: bold;
+}
+
+.nodes-map-popup-row {
+  font-size: 8px;
+  color: #8a9aaa;
+}
+
+.nodes-map-explore-btn {
+  margin-top: 2px;
+  padding: 5px 8px;
+  font-family: "Press Start Local", monospace;
+  font-size: 8px;
+  line-height: 1;
+  background: #2e3a45;
+  color: #c8d0d8;
+  border: 1px solid #3a4a55;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  width: 100%;
+  text-align: center;
+}
+
+.nodes-map-explore-btn:hover {
+  background: #3a4a55;
+  color: #e8f0f8;
+}
+
+.nodes-map-container .leaflet-popup-content-wrapper {
+  background: #252b32;
+  color: #c8d0d8;
+  border: 1px solid #3a4450;
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.nodes-map-container .leaflet-popup-tip {
+  background: #252b32;
+}
+
+.nodes-map-container .leaflet-popup-content {
+  margin: 8px 10px;
+}
+
+.nodes-map-container .leaflet-control-zoom a {
+  background: #252b32;
+  color: #c8d0d8;
+  border-color: #3a4450;
+}
+
+.nodes-map-container .leaflet-control-zoom a:hover {
+  background: #3a4450;
+}
+
 .modal-head {
   margin-bottom: 0;
 }
@@ -1348,6 +1469,133 @@ button {
 
 .modal-section-wide {
   grid-column: 1 / -1;
+}
+
+.modal-panel--node {
+  width: min(780px, calc(100vw - 32px));
+}
+
+.node-modal-head {
+  align-items: flex-start;
+}
+
+.node-modal-head-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.node-modal-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-modal-head-title .node-dot {
+  flex: 0 0 8px;
+  margin-top: 1px;
+}
+
+.node-dot--online { background: var(--success); }
+.node-dot--offline { background: #8b4a4a; }
+
+.node-modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.node-modal-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-family: "Press Start Local", monospace;
+  font-size: 8px;
+  line-height: 1;
+  text-transform: uppercase;
+  background: var(--panel-2);
+  color: var(--ink);
+  border-top: 1px solid var(--edge-light);
+  border-left: 1px solid var(--edge-light);
+  border-right: 1px solid var(--edge-dark);
+  border-bottom: 1px solid var(--edge-dark);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.node-modal-action-btn svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  color: var(--muted);
+}
+
+.node-modal-action-btn:hover {
+  filter: brightness(1.15);
+}
+
+.node-modal-body {
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+}
+
+.node-modal-top {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.node-modal-right-col {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.node-modal-details {
+  background: #242830;
+  border-top: 1px solid var(--edge-light);
+  border-left: 1px solid var(--edge-light);
+  border-right: 1px solid var(--edge-dark);
+  border-bottom: 1px solid var(--edge-dark);
+}
+
+.node-modal-details-toggle {
+  padding: 6px 8px;
+  font-family: "Press Start Local", monospace;
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.node-modal-details-toggle::before {
+  content: "▶";
+  font-size: 7px;
+  transition: transform 0.15s;
+}
+
+.node-modal-details[open] > .node-modal-details-toggle::before {
+  transform: rotate(90deg);
+}
+
+.node-modal-details-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.modal-pre--sm {
+  min-height: 0;
+  max-height: 160px;
 }
 
 .modal-label {
@@ -2572,6 +2820,14 @@ textarea,
 
   .modal-grid {
     grid-template-columns: 1fr;
+  }
+
+  .node-modal-top {
+    grid-template-columns: 1fr;
+  }
+
+  .node-modal-head-actions {
+    flex-wrap: wrap;
   }
 
   .model-manager-grid {

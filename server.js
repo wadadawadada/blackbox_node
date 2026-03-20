@@ -3645,7 +3645,9 @@ const server = http.createServer(async (req, res) => {
         ".png": "image/png",
       }[ext] || "application/octet-stream";
 
-      res.writeHead(200, { "Content-Type": contentType });
+      const headers = { "Content-Type": contentType };
+      if (filePath.endsWith("map-sw.js")) headers["Service-Worker-Allowed"] = "/";
+      res.writeHead(200, headers);
       fs.createReadStream(filePath).pipe(res);
       return;
     }

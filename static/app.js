@@ -24,8 +24,15 @@ const chatPeerTrigger = document.getElementById("chatPeerTrigger");
 const chatPeerLabel = document.getElementById("chatPeerLabel");
 const chatPeerCashuButton = document.getElementById("chatPeerCashuButton");
 const chatPeerFilterButtons = Array.from(document.querySelectorAll("[data-chat-peer-filter]"));
+const nodesMapModal = document.getElementById("nodesMapModal");
+const nodesMapClose = document.getElementById("nodesMapClose");
+const nodesMapContainer = document.getElementById("nodesMapContainer");
+const openNodesMapButton = document.getElementById("openNodesMapButton");
 const nodeModal = document.getElementById("nodeModal");
 const nodeModalClose = document.getElementById("nodeModalClose");
+const nodeModalDot = document.getElementById("nodeModalDot");
+const nodeModalChatButton = document.getElementById("nodeModalChatButton");
+const nodeModalSendButton = document.getElementById("nodeModalSendButton");
 const nodeModalSubtitle = document.getElementById("nodeModalSubtitle");
 const nodeModalIdentity = document.getElementById("nodeModalIdentity");
 const nodeModalStatus = document.getElementById("nodeModalStatus");
@@ -1793,31 +1800,34 @@ function formatMetric(label, value) {
 async function openNodeModal(nodeId) {
   try {
     const payload = await fetchJson(`/api/node-raw?id=${encodeURIComponent(nodeId)}`);
-    nodeModalSubtitle.textContent = `${payload.role || "node"} | ${payload.observedPortnums?.length ? "live packets seen" : "snapshot only"}`;
-    renderKv(nodeModalIdentity, [
-      ["Name", payload.longName || payload.shortName || payload.userId || payload.id],
-      ["User ID", payload.userId || payload.id],
-      ["Short", payload.shortName],
-      ["Role", payload.role],
-    ]);
-    renderKv(nodeModalStatus, [
-      ["Online", payload.online ? "yes" : "no"],
-      ["Live packets", payload.live ? "yes" : "no"],
-      ["Ports seen", payload.observedPortnums?.length || 0],
-    ]);
+    const isOnline = !!payload.online;
+    nodeModalDot.className = `node-dot${isOnline ? " node-dot--online" : " node-dot--offline"}`;
+    nodeModalSubtitle.textContent = `${payload.role || "node"} · ${payload.observedPortnums?.length ? "live packets seen" : "snapshot only"}`;
 
     const raw = payload.raw || {};
+    const lat = raw.position?.latitude ?? raw.latitude;
+    const lon = raw.position?.longitude ?? raw.longitude;
+    renderKv(nodeModalIdentity, [
+      ["Name", payload.longName || payload.shortName || payload.userId || payload.id],
+      ["ID", payload.userId || payload.id],
+      ["Short", payload.shortName],
+      ["Hardware", payload.hardware],
+      ...(lat != null && lat !== 0 ? [["Lat", lat], ["Lon", lon]] : []),
+    ]);
+    renderKv(nodeModalStatus, [
+      ["Online", isOnline ? "yes" : "no"],
+      ["Live", payload.live ? "yes" : "no"],
+      ["Hops", raw.hopsAway ?? "—"],
+      ["SNR", formatMetric("SNR", raw.snr)],
+    ]);
+
     const metrics = raw.deviceMetrics || payload.lastDecoded?.deviceMetrics || payload.lastDecoded?.localStats || {};
     renderKv(nodeModalMetrics, [
       ["Battery", formatMetric("Battery", metrics.batteryLevel)],
       ["Voltage", formatMetric("Voltage", metrics.voltage)],
       ["Uptime", formatMetric("Uptime", metrics.uptimeSeconds)],
-      ["Channel util", formatMetric("Channel util", metrics.channelUtilization)],
-      ["Air util tx", formatMetric("Air util tx", metrics.airUtilTx)],
-      ["SNR", formatMetric("SNR", raw.snr)],
-      ["Hops", raw.hopsAway],
-      ["Latitude", raw.position?.latitude || raw.latitude],
-      ["Longitude", raw.position?.longitude || raw.longitude],
+      ["Ch util", formatMetric("Channel util", metrics.channelUtilization)],
+      ["Air util", formatMetric("Air util tx", metrics.airUtilTx)],
     ]);
 
     nodeModalPorts.innerHTML = "";
@@ -1835,6 +1845,11 @@ async function openNodeModal(nodeId) {
 
     nodeModalDecoded.textContent = JSON.stringify(payload.lastDecoded || {}, null, 2);
     nodeModalRaw.textContent = JSON.stringify(payload.raw || {}, null, 2);
+
+    const peerId = payload.userId || payload.id;
+    nodeModalChatButton.onclick = () => { closeNodeModal(); closeNodesMap(); openDmForNode(peerId); };
+    nodeModalSendButton.onclick = () => { closeNodeModal(); closeNodesMap(); openCashuSendForNode(peerId); };
+
     nodeModal.classList.remove("hidden");
     nodeModal.setAttribute("aria-hidden", "false");
   } catch (error) {
@@ -1845,6 +1860,104 @@ async function openNodeModal(nodeId) {
 function closeNodeModal() {
   nodeModal.classList.add("hidden");
   nodeModal.setAttribute("aria-hidden", "true");
+}
+
+// ── Nodes Map ─────────────────────────────────────────────────────────────────
+let _mapInstance = null;
+let _mapMarkers = [];
+
+function openNodesMap() {
+  nodesMapModal.classList.remove("hidden");
+  nodesMapModal.setAttribute("aria-hidden", "false");
+
+  if (!_mapInstance) {
+    _mapInstance = L.map(nodesMapContainer, {
+      center: [20, 0],
+      zoom: 2,
+      zoomControl: true,
+    });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+      subdomains: "abcd",
+      maxZoom: 19,
+    }).addTo(_mapInstance);
+  }
+
+  // Force Leaflet to recalculate size after the modal becomes visible
+  requestAnimationFrame(() => {
+    _mapInstance.invalidateSize();
+    _renderMapNodes();
+  });
+}
+
+function closeNodesMap() {
+  nodesMapModal.classList.add("hidden");
+  nodesMapModal.setAttribute("aria-hidden", "true");
+}
+
+function _renderMapNodes() {
+  if (!_mapInstance) return;
+
+  _mapMarkers.forEach((m) => m.remove());
+  _mapMarkers = [];
+
+  const withPos = latestNodes.filter(
+    (n) => n.latitude != null && n.longitude != null && n.latitude !== 0 && n.longitude !== 0
+  );
+
+  withPos.forEach((node) => {
+    const online = !!node.online;
+    const shortName = node.shortName || (node.userId || node.id || "?").slice(0, 4);
+    const label = node.longName || node.shortName || node.userId || node.id || "?";
+    const status = online ? "online" : "offline";
+    const battery = node.batteryLevel != null ? `${node.batteryLevel}%` : "—";
+    const nodeId = node.userId || node.id;
+
+    const icon = L.divIcon({
+      className: "",
+      html: `<div class="nodes-map-marker-wrap">` +
+            `<div class="${online ? "nodes-map-marker-online" : "nodes-map-marker-offline"}"></div>` +
+            `<span class="nodes-map-label">${shortName}</span>` +
+            `</div>`,
+      iconSize: [90, 14],
+      iconAnchor: [5, 7],
+      popupAnchor: [10, -6],
+    });
+
+    const popupHtml =
+      `<div class="nodes-map-popup">` +
+      `<div class="nodes-map-popup-name">${label}</div>` +
+      `<div class="nodes-map-popup-row">${status} · battery: ${battery}</div>` +
+      `<button class="nodes-map-explore-btn" onclick="openNodeModal('${nodeId}')">explore</button>` +
+      `</div>`;
+
+    const marker = L.marker([node.latitude, node.longitude], { icon })
+      .bindPopup(popupHtml, { closeButton: false, autoPan: false })
+      .addTo(_mapInstance);
+
+    let _closeTimer = null;
+    marker.on("mouseover", function () {
+      clearTimeout(_closeTimer);
+      this.openPopup();
+    });
+    marker.on("mouseout", function () {
+      const m = this;
+      _closeTimer = setTimeout(() => m.closePopup(), 200);
+    });
+    marker.on("popupopen", function () {
+      const popupEl = this.getPopup().getElement();
+      if (!popupEl) return;
+      popupEl.addEventListener("mouseenter", () => clearTimeout(_closeTimer));
+      popupEl.addEventListener("mouseleave", () => { _closeTimer = setTimeout(() => marker.closePopup(), 200); });
+    });
+
+    _mapMarkers.push(marker);
+  });
+
+  if (withPos.length > 0) {
+    const bounds = L.latLngBounds(withPos.map((n) => [n.latitude, n.longitude]));
+    _mapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  }
 }
 
 async function loadStatus() {
@@ -2919,6 +3032,14 @@ walletModal.addEventListener("click", (event) => {
   }
 });
 
+openNodesMapButton.addEventListener("click", openNodesMap);
+nodesMapClose.addEventListener("click", closeNodesMap);
+nodesMapModal.addEventListener("click", (event) => {
+  if (event.target.hasAttribute("data-close-nodes-map")) {
+    closeNodesMap();
+  }
+});
+
 nodeModalClose.addEventListener("click", closeNodeModal);
 nodeModal.addEventListener("click", (event) => {
   if (event.target.hasAttribute("data-close-node-modal")) {
@@ -3003,3 +3124,7 @@ loadStatus();
 loadMessages();
 loadNodes();
 connectEvents();
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/static/map-sw.js", { scope: "/" }).catch(() => {});
+}

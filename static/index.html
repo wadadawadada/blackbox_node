@@ -7,6 +7,8 @@
   <link rel="icon" type="image/png" href="/static/ico.png">
   <link rel="shortcut icon" type="image/png" href="/static/ico.png">
   <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
   <main class="layout">
@@ -66,6 +68,12 @@
         <section class="panel nodes-panel">
           <div class="panel-head">
             <h2>Nodes</h2>
+            <button id="openNodesMapButton" type="button" class="panel-icon-button" aria-label="Open nodes map">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                <path d="M9 4L3 7v13l6-3 6 3 6-3V4l-6 3-6-3Z" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M9 4v13M15 7v13" stroke="#ffffff" stroke-width="1.5"/>
+              </svg>
+            </button>
           </div>
           <div id="nodesList" class="nodes-list">
             <div class="node-empty">No nodes yet</div>
@@ -144,41 +152,71 @@
     </section>
   </main>
 
+  <div id="nodesMapModal" class="modal-shell hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-nodes-map></div>
+    <section class="modal-panel modal-panel--map panel" role="dialog" aria-modal="true" aria-labelledby="nodesMapTitle">
+      <div class="panel-head modal-head">
+        <h2 id="nodesMapTitle">Node Map</h2>
+        <button id="nodesMapClose" type="button" class="modal-close" aria-label="Close">X</button>
+      </div>
+      <div id="nodesMapContainer" class="nodes-map-container"></div>
+    </section>
+  </div>
+
   <div id="nodeModal" class="modal-shell hidden" aria-hidden="true">
     <div class="modal-backdrop" data-close-node-modal></div>
-    <section class="modal-panel panel" role="dialog" aria-modal="true" aria-labelledby="nodeModalTitle">
-      <div class="panel-head modal-head">
-        <div>
-          <h2 id="nodeModalTitle">Node Details</h2>
+    <section class="modal-panel modal-panel--node panel" role="dialog" aria-modal="true" aria-labelledby="nodeModalTitle">
+      <div class="panel-head modal-head node-modal-head">
+        <div class="node-modal-head-info">
+          <div class="node-modal-head-title">
+            <span id="nodeModalDot" class="node-dot"></span>
+            <h2 id="nodeModalTitle">Node Details</h2>
+          </div>
           <div id="nodeModalSubtitle" class="chat-subtitle">Snapshot</div>
         </div>
-        <button id="nodeModalClose" type="button" class="modal-close" aria-label="Close">X</button>
+        <div class="node-modal-head-actions">
+          <button id="nodeModalChatButton" type="button" class="node-modal-action-btn">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <path d="M4 4h16v12H4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M8 20l4-4h8" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+            Chat
+          </button>
+          <button id="nodeModalSendButton" type="button" class="node-modal-action-btn">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <path d="M3 7h18v10H3z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <circle cx="17" cy="12" r="1.5" fill="currentColor"/>
+            </svg>
+            Send funds
+          </button>
+          <button id="nodeModalClose" type="button" class="modal-close" aria-label="Close">X</button>
+        </div>
       </div>
-      <div class="modal-grid">
-        <div class="modal-section">
-          <div class="modal-label">Identity</div>
-          <div id="nodeModalIdentity" class="modal-kv"></div>
+      <div class="node-modal-body">
+        <div class="node-modal-top">
+          <div class="modal-section">
+            <div class="modal-label">Identity</div>
+            <div id="nodeModalIdentity" class="modal-kv"></div>
+          </div>
+          <div class="modal-section">
+            <div class="modal-label">Metrics</div>
+            <div id="nodeModalMetrics" class="modal-kv"></div>
+          </div>
+          <div class="modal-section node-modal-right-col">
+            <div class="modal-label">Status</div>
+            <div id="nodeModalStatus" class="modal-kv"></div>
+            <div class="modal-label" style="margin-top:8px">Ports</div>
+            <div id="nodeModalPorts" class="modal-list"></div>
+          </div>
         </div>
-        <div class="modal-section">
-          <div class="modal-label">Status</div>
-          <div id="nodeModalStatus" class="modal-kv"></div>
-        </div>
-        <div class="modal-section">
-          <div class="modal-label">Metrics</div>
-          <div id="nodeModalMetrics" class="modal-kv"></div>
-        </div>
-        <div class="modal-section">
-          <div class="modal-label">Observed Ports</div>
-          <div id="nodeModalPorts" class="modal-list"></div>
-        </div>
-        <div class="modal-section modal-section-wide">
-          <div class="modal-label">Last Decoded</div>
-          <pre id="nodeModalDecoded" class="modal-pre"></pre>
-        </div>
-        <div class="modal-section modal-section-wide">
-          <div class="modal-label">Raw Snapshot</div>
-          <pre id="nodeModalRaw" class="modal-pre"></pre>
-        </div>
+        <details class="node-modal-details">
+          <summary class="node-modal-details-toggle">Last Decoded</summary>
+          <pre id="nodeModalDecoded" class="modal-pre modal-pre--sm"></pre>
+        </details>
+        <details class="node-modal-details">
+          <summary class="node-modal-details-toggle">Raw Snapshot</summary>
+          <pre id="nodeModalRaw" class="modal-pre modal-pre--sm"></pre>
+        </details>
       </div>
     </section>
   </div>
