@@ -31,6 +31,7 @@ const openNodesMapButton = document.getElementById("openNodesMapButton");
 const nodeModal = document.getElementById("nodeModal");
 const nodeModalClose = document.getElementById("nodeModalClose");
 const nodeModalDot = document.getElementById("nodeModalDot");
+const nodeModalPositionButton = document.getElementById("nodeModalPositionButton");
 const nodeModalChatButton = document.getElementById("nodeModalChatButton");
 const nodeModalSendButton = document.getElementById("nodeModalSendButton");
 const nodeModalSubtitle = document.getElementById("nodeModalSubtitle");
@@ -185,6 +186,14 @@ const swapLnCheckStatus = document.getElementById("swapLnCheckStatus");
 const activeSwapsCard = document.getElementById("activeSwapsCard");
 const activeSwapsList = document.getElementById("activeSwapsList");
 const clearSwapsButton = document.getElementById("clearSwapsButton");
+const deviceMetaModal = document.getElementById("deviceMetaModal");
+const deviceMetaClose = document.getElementById("deviceMetaClose");
+const deviceMetaShortName = document.getElementById("deviceMetaShortName");
+const deviceMetaLongName = document.getElementById("deviceMetaLongName");
+const deviceMetaLat = document.getElementById("deviceMetaLat");
+const deviceMetaLon = document.getElementById("deviceMetaLon");
+const deviceMetaStatus = document.getElementById("deviceMetaStatus");
+const deviceMetaSave = document.getElementById("deviceMetaSave");
 const settingsMintUrlInput = document.getElementById("settingsMintUrlInput");
 const settingsSetMintButton = document.getElementById("settingsSetMintButton");
 const settingsMintStatus = document.getElementById("settingsMintStatus");
@@ -224,6 +233,7 @@ let showingDonateView = false;
 let latestMeshtasticConnected = false;
 let latestMessages = [];
 let latestNodes = [];
+let latestMeshLinks = [];
 const unreadPeers = new Set(); // peer IDs with unread incoming messages
 const HELP_MODAL_TITLE_DEFAULT = "About BLACKBOX NODE";
 const HELP_MODAL_TITLE_DONATE = "DONATE";
@@ -1216,6 +1226,30 @@ function closeHelpModal() {
   helpModal.classList.add("hidden");
   helpModal.setAttribute("aria-hidden", "true");
 }
+
+function openDeviceMetaModal() {
+  deviceMetaModal.classList.remove("hidden");
+  deviceMetaModal.setAttribute("aria-hidden", "false");
+  deviceMetaStatus.textContent = "Loading...";
+  deviceMetaShortName.value = "";
+  deviceMetaLongName.value = "";
+  deviceMetaLat.value = "";
+  deviceMetaLon.value = "";
+  fetchJson("/api/device-meta").then((data) => {
+    deviceMetaShortName.value = data.shortName || "";
+    deviceMetaLongName.value = data.longName || "";
+    deviceMetaLat.value = data.latitude != null ? data.latitude : "";
+    deviceMetaLon.value = data.longitude != null ? data.longitude : "";
+    deviceMetaStatus.textContent = "";
+  }).catch((err) => {
+    deviceMetaStatus.textContent = `Load error: ${err.message}`;
+  });
+}
+
+function closeDeviceMetaModal() {
+  deviceMetaModal.classList.add("hidden");
+  deviceMetaModal.setAttribute("aria-hidden", "true");
+}
 function getFocusableElements(container) {
   return Array.from(container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter((element) => {
     return !element.disabled && element.offsetParent !== null;
@@ -1666,8 +1700,9 @@ function handleWalletModalFocusTrap(event) {
   }
 }
 
-function renderNodes(nodes = []) {
+function renderNodes(nodes = [], meshLinks = []) {
   latestNodes = Array.isArray(nodes) ? nodes.slice() : [];
+  latestMeshLinks = Array.isArray(meshLinks) ? meshLinks.slice() : [];
   const onlineCount = latestNodes.filter((n) => n.online).length;
   const countEl = document.getElementById("nodesOnlineCount");
   if (countEl) countEl.innerHTML = onlineCount > 0
@@ -1855,6 +1890,10 @@ async function openNodeModal(nodeId) {
     nodeModalChatButton.onclick = () => { closeNodeModal(); closeNodesMap(); openDmForNode(peerId); };
     nodeModalSendButton.onclick = () => { closeNodeModal(); closeNodesMap(); openCashuSendForNode(peerId); };
 
+    // Location request button
+    const hasPos = lat != null && lat !== 0;
+    _setupLocateButton(nodeId, peerId, hasPos);
+
     nodeModal.classList.remove("hidden");
     nodeModal.setAttribute("aria-hidden", "false");
   } catch (error) {
@@ -1867,13 +1906,127 @@ function closeNodeModal() {
   nodeModal.setAttribute("aria-hidden", "true");
 }
 
+let _locateWatchNodeId = null;
+let _locateWatchPeerId = null;
+let _locateTimeout = null;
+
+function _setupLocateButton(nodeId, peerId, hasPos) {
+  clearTimeout(_locateTimeout);
+  _locateWatchNodeId = null;
+  _locateWatchPeerId = null;
+
+  const btn = nodeModalPositionButton;
+  const label = btn.querySelector("svg + *") || btn.lastChild;
+
+  function setIdle() {
+    btn.disabled = false;
+    btn.classList.remove("node-modal-action-btn--pending", "node-modal-action-btn--success");
+    btn.title = "Request current location from node";
+    if (label) label.textContent = " Locate";
+  }
+  function setPending() {
+    btn.disabled = true;
+    btn.classList.add("node-modal-action-btn--pending");
+    btn.classList.remove("node-modal-action-btn--success");
+    if (label) label.textContent = " Locating...";
+  }
+  function setSuccess() {
+    btn.disabled = false;
+    btn.classList.remove("node-modal-action-btn--pending");
+    btn.classList.add("node-modal-action-btn--success");
+    if (label) label.textContent = " Show on map";
+  }
+
+  setIdle();
+
+  btn.onclick = async () => {
+    if (btn.classList.contains("node-modal-action-btn--success")) {
+      // Open map and zoom to node
+      closeNodeModal();
+      openNodesMap();
+      setTimeout(() => {
+        const target = latestNodes.find((n) => (n.userId || n.id) === peerId);
+        if (target?.latitude && _mapInstance) {
+          _mapInstance.setView([target.latitude, target.longitude], 14, { animate: true });
+        }
+      }, 400);
+      return;
+    }
+    setPending();
+    _locateWatchNodeId = nodeId;
+    _locateWatchPeerId = peerId;
+    _locateTimeout = setTimeout(() => {
+      if (_locateWatchNodeId === nodeId) { _locateWatchNodeId = null; setIdle(); }
+    }, 30000);
+    try {
+      await fetchJson(`/api/node/${encodeURIComponent(peerId)}/request-position`, { method: "POST" });
+    } catch {
+      clearTimeout(_locateTimeout);
+      _locateWatchNodeId = null;
+      setIdle();
+    }
+  };
+}
+
 // ── Nodes Map ─────────────────────────────────────────────────────────────────
 let _mapInstance = null;
 let _mapMarkers = [];
 let _mapCircles = [];
 let _mapLines = [];
+let _hoverLines = [];
 let _mapShowRadius = false;
+let _mapRadiusStyle = "fill"; // "fill" = current | "rings" = concentric bands
 let _mapShowLinks = false;
+let _mapColorByRole = false;
+let _mapRoleFilter = new Set(); // empty = show all
+let _mapHoverMaxHops = 3;
+
+const _MAP_ROLE_INT = {
+  "0": "CLIENT", "1": "CLIENT_MUTE", "2": "ROUTER", "3": "ROUTER_CLIENT",
+  "4": "REPEATER", "5": "TRACKER", "6": "SENSOR", "7": "TAK",
+  "8": "CLIENT_HIDDEN", "9": "LOST_AND_FOUND", "10": "TAK_TRACKER",
+};
+const _MAP_ROLE_CONFIG = {
+  "CLIENT":         { color: "#4a9eff", label: "Client" },
+  "CLIENT_MUTE":    { color: "#6a7a8a", label: "Client Mute" },
+  "ROUTER":         { color: "#ff9043", label: "Router" },
+  "ROUTER_CLIENT":  { color: "#b06aff", label: "Router Client" },
+  "REPEATER":       { color: "#e8c030", label: "Repeater" },
+  "TRACKER":        { color: "#00d4d4", label: "Tracker" },
+  "SENSOR":         { color: "#26c6a6", label: "Sensor" },
+  "TAK":            { color: "#ff6ab0", label: "TAK" },
+  "CLIENT_HIDDEN":  { color: "#4a5566", label: "Hidden" },
+  "LOST_AND_FOUND": { color: "#ff4444", label: "Lost & Found" },
+  "TAK_TRACKER":    { color: "#ff8a65", label: "TAK Tracker" },
+  "weather":        { color: "#26c6a6", label: "Weather" },
+  "":               { color: "#8a9aaa", label: "Unknown" },
+};
+
+function _getNodeRoleKey(node) {
+  const raw = String(node.meshtasticRole || "");
+  if (_MAP_ROLE_INT[raw]) return _MAP_ROLE_INT[raw];
+  const upper = raw.toUpperCase();
+  if (_MAP_ROLE_CONFIG[upper]) return upper;
+  if (node.role === "weather") return "weather";
+  return "";
+}
+
+function _getRoleColor(node) {
+  const key = _getNodeRoleKey(node);
+  return (_MAP_ROLE_CONFIG[key] || _MAP_ROLE_CONFIG[""]).color;
+}
+
+function _snrToColor(snr) {
+  if (snr == null) return "#4a9eff";
+  if (snr >= 5)   return "#4caf50";
+  if (snr >= 0)   return "#ffc107";
+  return "#ff7043";
+}
+
+function _clearHoverLines() {
+  _hoverLines.forEach((l) => l.remove());
+  _hoverLines = [];
+}
 
 function openNodesMap() {
   nodesMapModal.classList.remove("hidden");
@@ -1884,7 +2037,9 @@ function openNodesMap() {
       center: [20, 0],
       zoom: 2,
       zoomControl: true,
+      attributionControl: true,
     });
+    _mapInstance.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank">Leaflet</a>');
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
       attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
       subdomains: "abcd",
@@ -1896,21 +2051,80 @@ function openNodesMap() {
       const div = L.DomUtil.create("div", "nodes-map-toggle-control");
       div.innerHTML =
         `<button id="mapToggleRadius" class="nodes-map-toggle-btn" title="Signal radius">radius</button>` +
-        `<button id="mapToggleLinks" class="nodes-map-toggle-btn" title="Connection lines">links</button>`;
+        `<button id="mapToggleLinks" class="nodes-map-toggle-btn" title="Connection lines">links</button>` +
+        `<button id="mapToggleRole" class="nodes-map-toggle-btn" title="Color by role">role</button>` +
+        `<div id="mapRadiusStyleControl" class="nodes-map-hops-control hidden" title="Radius style">` +
+          `<span class="nodes-map-hops-label">style</span>` +
+          `<button id="mapRadiusStyleBtn" class="nodes-map-style-btn nodes-map-style-btn--fill" title="Switch radius style"></button>` +
+        `</div>` +
+        `<div id="mapHopsControl" class="nodes-map-hops-control hidden" title="Hover hops depth">` +
+          `<span class="nodes-map-hops-label">hops <span id="mapHopsVal">${_mapHoverMaxHops}</span></span>` +
+          `<input id="mapHopsSlider" class="nodes-map-hops-slider" type="range" min="1" max="9" value="${_mapHoverMaxHops}">` +
+        `</div>`;
       L.DomEvent.disableClickPropagation(div);
       return div;
     };
     toggleControl.addTo(_mapInstance);
 
+    const legendControl = L.control({ position: "bottomright" });
+    legendControl.onAdd = function () {
+      const div = L.DomUtil.create("div", "nodes-map-legend");
+      div.id = "mapLinksLegend";
+      div.style.display = "none";
+      div.innerHTML =
+        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line" style="background:#4caf50"></span> Strong SNR (≥5 dB)</div>` +
+        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line" style="background:#ffc107"></span> Medium SNR (0–5 dB)</div>` +
+        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line" style="background:#ff7043"></span> Weak SNR (&lt;0 dB)</div>` +
+        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line" style="background:#4a9eff"></span> No SNR data</div>` +
+        `<div class="nodes-map-legend-divider"></div>` +
+        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line--dashed" style="border-color:#4a9eff"></span> Direct (1 hop)</div>` +
+        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line--dashed" style="border-color:#b06fff"></span> Relayed (2 hops)</div>`;
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    };
+    legendControl.addTo(_mapInstance);
+
+    const roleLegendControl = L.control({ position: "topright" });
+    roleLegendControl.onAdd = function () {
+      const div = L.DomUtil.create("div", "nodes-map-legend nodes-map-role-legend");
+      div.id = "mapRoleLegend";
+      div.style.display = "none";
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    };
+    roleLegendControl.addTo(_mapInstance);
+
     document.getElementById("mapToggleRadius").addEventListener("click", function () {
       _mapShowRadius = !_mapShowRadius;
       this.classList.toggle("nodes-map-toggle-btn--active", _mapShowRadius);
+      document.getElementById("mapRadiusStyleControl").classList.toggle("hidden", !_mapShowRadius);
+      _renderMapNodes(false);
+    });
+    document.getElementById("mapRadiusStyleBtn").addEventListener("click", function () {
+      _mapRadiusStyle = _mapRadiusStyle === "fill" ? "rings" : "fill";
+      this.classList.toggle("nodes-map-style-btn--fill", _mapRadiusStyle === "fill");
+      this.classList.toggle("nodes-map-style-btn--rings", _mapRadiusStyle === "rings");
       _renderMapNodes(false);
     });
     document.getElementById("mapToggleLinks").addEventListener("click", function () {
       _mapShowLinks = !_mapShowLinks;
       this.classList.toggle("nodes-map-toggle-btn--active", _mapShowLinks);
+      const legend = document.getElementById("mapLinksLegend");
+      if (legend) legend.style.display = _mapShowLinks ? "" : "none";
+      document.getElementById("mapHopsControl").classList.toggle("hidden", !_mapShowLinks);
       _renderMapNodes(false);
+    });
+    document.getElementById("mapToggleRole").addEventListener("click", function () {
+      _mapColorByRole = !_mapColorByRole;
+      this.classList.toggle("nodes-map-toggle-btn--active", _mapColorByRole);
+      const legend = document.getElementById("mapRoleLegend");
+      if (legend) legend.style.display = _mapColorByRole ? "" : "none";
+      if (!_mapColorByRole) _mapRoleFilter = new Set();
+      _renderMapNodes(false);
+    });
+    document.getElementById("mapHopsSlider").addEventListener("input", function () {
+      _mapHoverMaxHops = parseInt(this.value);
+      document.getElementById("mapHopsVal").textContent = _mapHoverMaxHops;
     });
   }
 
@@ -1924,6 +2138,10 @@ function openNodesMap() {
 function closeNodesMap() {
   nodesMapModal.classList.add("hidden");
   nodesMapModal.setAttribute("aria-hidden", "true");
+  const panel = nodesMapModal.querySelector(".modal-panel--map");
+  if (panel) panel.classList.remove("modal-panel--fullscreen");
+  const icon = document.getElementById("nodesMapExpandIcon");
+  if (icon) icon.innerHTML = '<path d="M1 1h4v1.5H2.5V4H1V1zm6 0h4v3h-1.5V2.5H7V1zM1 8h1.5v2.5H5V12H1V8zm8.5 2.5H7V12h4V8H9.5v2.5z"/>';
 }
 
 function _renderMapNodes(fitBounds = true) {
@@ -1956,10 +2174,21 @@ function _renderMapNodes(fitBounds = true) {
     (n) => n.latitude != null && n.longitude != null && n.latitude !== 0 && n.longitude !== 0
   );
 
+  _clearHoverLines();
+
   if (_mapShowRadius) _renderMapRadius(withPos);
   if (_mapShowLinks) _renderMapLinks(withPos);
 
+  // Built after renderEntries is ready (closures read these by reference at call-time)
+  let _renderedPos = null; // Map<meshNumStr, {lat,lon}>
+  let _nodeEdges = null;   // Map<meshNumStr, [{to, snr}]>
+
   function _addMapMarker(lat, lon, node, estimated) {
+    // Role filter — skip node if active filter doesn't include its role
+    if (_mapColorByRole && _mapRoleFilter.size > 0) {
+      if (!_mapRoleFilter.has(_getNodeRoleKey(node))) return;
+    }
+
     const online = !!node.online;
     const shortName = node.shortName || (node.userId || node.id || "?").slice(0, 4);
     const label = node.longName || node.shortName || node.userId || node.id || "?";
@@ -1973,10 +2202,14 @@ function _renderMapNodes(fitBounds = true) {
     const wrapClass = estimated ? "nodes-map-marker-wrap nodes-map-marker-wrap--est" : "nodes-map-marker-wrap";
     const displayName = estimated ? `~${shortName}` : shortName;
 
+    const roleColorStyle = _mapColorByRole
+      ? ` style="background:${_getRoleColor(node)};border-color:rgba(255,255,255,0.25);box-shadow:0 0 6px ${_getRoleColor(node)}"`
+      : "";
+
     const icon = L.divIcon({
       className: "",
       html: `<div class="${wrapClass}">` +
-            `<div class="${dotClass}"></div>` +
+            `<div class="${dotClass}"${roleColorStyle}></div>` +
             `<span class="nodes-map-label">${displayName}</span>` +
             `</div>`,
       iconSize: [90, 14],
@@ -1989,24 +2222,69 @@ function _renderMapNodes(fitBounds = true) {
       `<div class="nodes-map-popup-name">${label}</div>` +
       `<div class="nodes-map-popup-row">${status} · battery: ${battery}</div>` +
       (estimated ? `<div class="nodes-map-popup-row nodes-map-popup-row--est">~ position estimated</div>` : "") +
-      `<button class="nodes-map-explore-btn" onclick="openNodeModal('${nodeId}')">explore</button>` +
       `</div>`;
 
     const marker = L.marker([lat, lon], { icon })
       .bindPopup(popupHtml, { closeButton: false, autoPan: false })
       .addTo(_mapInstance);
 
+    const myMeshNum = String(node.meshNum ?? "");
+
+    function drawHoverLinks() {
+      _clearHoverLines();
+      if (!_mapShowLinks || !myMeshNum || !_renderedPos || !_nodeEdges) return;
+
+      // BFS from this node through all known edges, draw each hop with fading opacity
+      const visited = new Set([myMeshNum]);
+      // queue entries: { from, to, snr, hop }
+      let queue = (_nodeEdges.get(myMeshNum) || []).map((e) => ({ from: myMeshNum, to: e.to, snr: e.snr, hop: 1 }));
+
+      while (queue.length > 0) {
+        const next = [];
+        for (const { from, to, snr, hop } of queue) {
+          if (visited.has(to) || hop > _mapHoverMaxHops) continue;
+          visited.add(to);
+          const fromPos = _renderedPos.get(from);
+          const toPos = _renderedPos.get(to);
+          if (fromPos && toPos) {
+            const opacity = Math.max(0.15, 0.9 - (hop - 1) * 0.18);
+            const weight = Math.max(1, 2.5 - (hop - 1) * 0.4);
+            const color = hop === 1 ? _snrToColor(snr) : "#7ab8ff";
+            const line = L.polyline(
+              [[fromPos.lat, fromPos.lon], [toPos.lat, toPos.lon]],
+              { color, weight, opacity, interactive: false }
+            ).addTo(_mapInstance);
+            _hoverLines.push(line);
+          }
+          // queue neighbors of `to` for next hop
+          for (const e of (_nodeEdges.get(to) || [])) {
+            if (!visited.has(e.to)) next.push({ from: to, to: e.to, snr: e.snr, hop: hop + 1 });
+          }
+        }
+        queue = next;
+      }
+    }
+
     let _closeTimer = null;
-    marker.on("mouseover", function () { clearTimeout(_closeTimer); this.openPopup(); });
+    marker.on("mouseover", function () {
+      clearTimeout(_closeTimer);
+      this.openPopup();
+      drawHoverLinks();
+    });
     marker.on("mouseout", function () {
       const m = this;
-      _closeTimer = setTimeout(() => m.closePopup(), 200);
+      _closeTimer = setTimeout(() => { m.closePopup(); _clearHoverLines(); }, 250);
     });
     marker.on("popupopen", function () {
       const popupEl = this.getPopup().getElement();
       if (!popupEl) return;
       popupEl.addEventListener("mouseenter", () => clearTimeout(_closeTimer));
-      popupEl.addEventListener("mouseleave", () => { _closeTimer = setTimeout(() => marker.closePopup(), 200); });
+      popupEl.addEventListener("mouseleave", () => {
+        _closeTimer = setTimeout(() => { marker.closePopup(); _clearHoverLines(); }, 250);
+      });
+    });
+    marker.on("click", function () {
+      openNodeModal(nodeId);
     });
     _mapMarkers.push(marker);
   }
@@ -2044,8 +2322,111 @@ function _renderMapNodes(fitBounds = true) {
     });
   }
 
+  // Build position map and edge map for all rendered nodes (used by hover links)
+  _renderedPos = new Map();
+  for (const { lat, lon, node } of renderEntries) {
+    if (node.meshNum != null) _renderedPos.set(String(node.meshNum), { lat, lon });
+  }
+
+  _nodeEdges = new Map();
+  function _addEdge(fromNum, toNum, snr) {
+    const k = String(fromNum);
+    if (!_nodeEdges.has(k)) _nodeEdges.set(k, []);
+    _nodeEdges.get(k).push({ to: String(toNum), snr: snr ?? null });
+  }
+  // NEIGHBORINFO edges (bidirectional)
+  for (const { node } of renderEntries) {
+    if (!node.meshNum) continue;
+    for (const nb of (node.neighbors || [])) {
+      _addEdge(node.meshNum, nb.nodeId, nb.snr);
+      _addEdge(nb.nodeId, node.meshNum, nb.snr);
+    }
+  }
+  // Observed relay edges (bidirectional)
+  for (const link of latestMeshLinks) {
+    if (link.from && link.via) {
+      _addEdge(link.from, link.via, link.snr);
+      _addEdge(link.via, link.from, link.snr);
+    }
+  }
+  // hopsAway fallback edges
+  const ourEntry = renderEntries.find((e) => e.node.hopsAway === 0);
+  const hop1Entries = renderEntries.filter((e) => e.node.hopsAway === 1 && e.node.meshNum != null);
+  if (ourEntry?.node.meshNum != null) {
+    // hop1 → ourNode
+    for (const { node } of hop1Entries) {
+      _addEdge(node.meshNum, ourEntry.node.meshNum, node.snr);
+      _addEdge(ourEntry.node.meshNum, node.meshNum, node.snr);
+    }
+    // hop2 → nearest hop1 + ourNode → that hop1 (same relay logic as _renderMapLinks)
+    for (const { node } of renderEntries) {
+      if (node.hopsAway !== 2 || !node.meshNum) continue;
+      // find nearest hop1 by distance
+      const myPos = _renderedPos.get(String(node.meshNum));
+      if (!myPos) continue;
+      let relay = hop1Entries[0];
+      let minDist = Infinity;
+      for (const h1e of hop1Entries) {
+        const h1pos = _renderedPos.get(String(h1e.node.meshNum));
+        if (!h1pos) continue;
+        const d = (h1pos.lat - myPos.lat) ** 2 + (h1pos.lon - myPos.lon) ** 2;
+        if (d < minDist) { minDist = d; relay = h1e; }
+      }
+      if (relay?.node.meshNum != null) {
+        _addEdge(node.meshNum, relay.node.meshNum, node.snr);
+        _addEdge(relay.node.meshNum, node.meshNum, node.snr);
+      }
+    }
+    // any remaining estimated node with no edges → connect to ourNode as last resort
+    for (const { node, estimated } of renderEntries) {
+      if (!estimated || !node.meshNum) continue;
+      if (!_nodeEdges.has(String(node.meshNum))) {
+        _addEdge(node.meshNum, ourEntry.node.meshNum, node.snr ?? null);
+        _addEdge(ourEntry.node.meshNum, node.meshNum, node.snr ?? null);
+      }
+    }
+  }
+
   for (const { lat, lon, node, estimated } of renderEntries) {
     _addMapMarker(lat, lon, node, estimated);
+  }
+
+  // Update role legend
+  const roleLegendEl = document.getElementById("mapRoleLegend");
+  if (roleLegendEl && _mapColorByRole) {
+    // Collect present roles across ALL nodes (not just rendered ones, so legend stays stable)
+    const presentRoles = new Map(); // roleKey → label
+    for (const node of latestNodes) {
+      const key = _getNodeRoleKey(node);
+      if (!presentRoles.has(key)) {
+        const cfg = _MAP_ROLE_CONFIG[key] || _MAP_ROLE_CONFIG[""];
+        presentRoles.set(key, cfg);
+      }
+    }
+    roleLegendEl.innerHTML = '<div class="nodes-map-legend-title">ROLE</div>';
+    for (const [key, cfg] of presentRoles) {
+      const isActive = _mapRoleFilter.size === 0 || _mapRoleFilter.has(key);
+      const item = document.createElement("div");
+      item.className = `nodes-map-legend-row nodes-map-role-item${isActive ? "" : " nodes-map-role-item--dim"}`;
+      item.dataset.roleKey = key;
+      item.innerHTML =
+        `<span class="nodes-map-role-dot" style="background:${cfg.color}"></span>` +
+        `<span>${cfg.label}</span>`;
+      item.addEventListener("click", () => {
+        if (_mapRoleFilter.size === 0) {
+          // First click: show ONLY this role
+          _mapRoleFilter = new Set([key]);
+        } else if (_mapRoleFilter.has(key)) {
+          _mapRoleFilter.delete(key);
+          // If all gone → show all
+          if (_mapRoleFilter.size === 0) _mapRoleFilter = new Set();
+        } else {
+          _mapRoleFilter.add(key);
+        }
+        _renderMapNodes(false);
+      });
+      roleLegendEl.appendChild(item);
+    }
   }
 
   if (fitBounds && withPos.length > 0) {
@@ -2063,6 +2444,14 @@ function _snrToRadius(snr) {
 }
 
 function _renderMapRadius(withPos) {
+  if (_mapRadiusStyle === "rings") {
+    _renderMapRadiusRings(withPos);
+  } else {
+    _renderMapRadiusFill(withPos);
+  }
+}
+
+function _renderMapRadiusFill(withPos) {
   for (const node of withPos) {
     const radius = _snrToRadius(node.snr);
     const online = !!node.online;
@@ -2075,6 +2464,40 @@ function _renderMapRadius(withPos) {
       interactive: false,
     }).addTo(_mapInstance);
     _mapCircles.push(circle);
+  }
+}
+
+function _renderMapRadiusRings(withPos) {
+  // Concentric signal-zone bands: strong (inner) → medium → weak (outer)
+  const BANDS = [
+    { scale: 1.0, color: "#ff7043", fillOpacity: 0.04, weight: 1, dashArray: "6 5", opacity: 0.55 }, // weak/outer
+    { scale: 0.6, color: "#ffc107", fillOpacity: 0.05, weight: 1, dashArray: null,  opacity: 0.55 }, // medium
+    { scale: 0.28, color: "#4caf50", fillOpacity: 0.10, weight: 1.5, dashArray: null, opacity: 0.75 }, // strong/inner
+  ];
+  const OFFLINE_BANDS = [
+    { scale: 1.0, color: "#6a3a3a", fillOpacity: 0.03, weight: 1, dashArray: "6 5", opacity: 0.35 },
+    { scale: 0.6, color: "#7a4a2a", fillOpacity: 0.03, weight: 1, dashArray: null,  opacity: 0.35 },
+    { scale: 0.28, color: "#5a4a2a", fillOpacity: 0.06, weight: 1, dashArray: null, opacity: 0.45 },
+  ];
+
+  for (const node of withPos) {
+    const baseRadius = _snrToRadius(node.snr);
+    const online = !!node.online;
+    const bands = online ? BANDS : OFFLINE_BANDS;
+
+    for (const band of bands) {
+      const circle = L.circle([node.latitude, node.longitude], {
+        radius: baseRadius * band.scale,
+        color: band.color,
+        weight: band.weight,
+        opacity: band.opacity,
+        fillColor: band.color,
+        fillOpacity: band.fillOpacity,
+        dashArray: band.dashArray || undefined,
+        interactive: false,
+      }).addTo(_mapInstance);
+      _mapCircles.push(circle);
+    }
   }
 }
 
@@ -2156,19 +2579,26 @@ function _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup) {
   return null;
 }
 
+// Link color by SNR quality:
+//   green  (#4caf50) — strong  (≥ 5 dB)
+//   yellow (#ffc107) — medium  (0..5 dB)
+//   orange (#ff7043) — weak    (< 0 dB)
+//   blue   (#4a9eff) — no SNR data
+// Fallback (hopsAway only, dashed):
+//   blue dashed  — direct (1 hop, estimated)
+//   purple dashed — relayed (2 hops, estimated)
 function _renderMapLinks(withPos) {
   const drawn = new Set();
 
-  function drawLine(lat1, lon1, lat2, lon2, snr) {
+  function drawLine(lat1, lon1, lat2, lon2, snr, color, dashed = false) {
     const key = [lat1, lon1, lat2, lon2].map((v) => v.toFixed(6)).join("|");
     const keyRev = [lat2, lon2, lat1, lon1].map((v) => v.toFixed(6)).join("|");
     if (drawn.has(key) || drawn.has(keyRev)) return;
     drawn.add(key);
-    const opacity = snr == null ? 0.4 : Math.max(0.2, Math.min(0.85, 0.4 + snr / 25));
-    const line = L.polyline(
-      [[lat1, lon1], [lat2, lon2]],
-      { color: "#4a9eff", weight: 1.5, opacity, interactive: false }
-    ).addTo(_mapInstance);
+    const opacity = snr == null ? 0.5 : Math.max(0.3, Math.min(0.9, 0.45 + snr / 20));
+    const opts = { color, weight: dashed ? 1.5 : 2, opacity, interactive: false };
+    if (dashed) opts.dashArray = "6 5";
+    const line = L.polyline([[lat1, lon1], [lat2, lon2]], opts).addTo(_mapInstance);
     _mapLines.push(line);
   }
 
@@ -2178,31 +2608,45 @@ function _renderMapLinks(withPos) {
     if (node.meshNum != null) byMeshNum[String(node.meshNum)] = node;
   }
 
-  // — Real topology from NEIGHBORINFO_APP —
-  // Track which nodes have sent their neighbor list
+  // — Real topology from NEIGHBORINFO_APP (solid, colored by SNR) —
   const hasNeighbors = new Set();
   for (const node of withPos) {
     if (!node.neighbors || node.neighbors.length === 0) continue;
-    hasNeighbors.add(node.meshNum ? String(node.meshNum) : null);
+    if (node.meshNum != null) hasNeighbors.add(String(node.meshNum));
     for (const nb of node.neighbors) {
       const nbNode = byMeshNum[String(nb.nodeId || "")];
       if (!nbNode) continue;
-      drawLine(node.latitude, node.longitude, nbNode.latitude, nbNode.longitude, nb.snr ?? null);
+      const snr = nb.snr ?? null;
+      drawLine(node.latitude, node.longitude, nbNode.latitude, nbNode.longitude, snr, _snrToColor(snr));
     }
   }
 
-  // — hopsAway fallback for nodes that haven't sent NEIGHBORINFO yet —
+  // — Observed relay links from packet relayNode field (solid orange, fw 2.3+) —
+  for (const link of latestMeshLinks) {
+    const fromNode = byMeshNum[String(link.from || "")];
+    const viaNode = byMeshNum[String(link.via || "")];
+    if (!fromNode || !viaNode) continue;
+    const snr = link.snr ?? null;
+    // sender ↔ relay: draw both legs if via has position
+    drawLine(fromNode.latitude, fromNode.longitude, viaNode.latitude, viaNode.longitude, snr, _snrToColor(snr));
+    if (fromNode.meshNum != null) hasNeighbors.add(String(fromNode.meshNum));
+    if (viaNode.meshNum != null) hasNeighbors.add(String(viaNode.meshNum));
+  }
+
+  // — hopsAway fallback (dashed) for nodes without NEIGHBORINFO data —
   const ourNode = withPos.find((n) => n.hopsAway === 0);
   if (!ourNode) return;
 
-  // Only include nodes without neighbor data; dedup via drawn Set handles the rest
   const hop1 = withPos.filter((n) => n.hopsAway === 1 && !hasNeighbors.has(String(n.meshNum ?? "")));
-  const hop1All = withPos.filter((n) => n.hopsAway === 1); // for relay lookup
+  const hop1All = withPos.filter((n) => n.hopsAway === 1);
   const hop2 = withPos.filter((n) => n.hopsAway === 2 && !hasNeighbors.has(String(n.meshNum ?? "")));
 
+  // Direct nodes (1 hop) — dashed blue
   for (const node of hop1) {
-    drawLine(ourNode.latitude, ourNode.longitude, node.latitude, node.longitude, node.snr ?? null);
+    drawLine(ourNode.latitude, ourNode.longitude, node.latitude, node.longitude, node.snr ?? null, "#4a9eff", true);
   }
+
+  // Relayed nodes (2 hops) — connect to geographically nearest hop1, dashed purple
   for (const node of hop2) {
     if (hop1All.length === 0) continue;
     let relay = hop1All[0];
@@ -2211,7 +2655,10 @@ function _renderMapLinks(withPos) {
       const d = _haversineKm(h1.latitude, h1.longitude, node.latitude, node.longitude);
       if (d < minDist) { minDist = d; relay = h1; }
     }
-    drawLine(relay.latitude, relay.longitude, node.latitude, node.longitude, node.snr ?? null);
+    // relay → ourNode link (may already be drawn above)
+    drawLine(ourNode.latitude, ourNode.longitude, relay.latitude, relay.longitude, relay.snr ?? null, "#4a9eff", true);
+    // relay → hop2 node
+    drawLine(relay.latitude, relay.longitude, node.latitude, node.longitude, node.snr ?? null, "#b06fff", true);
   }
 }
 
@@ -2241,6 +2688,7 @@ function renderDeviceStatus(status) {
     ? "Auto-connected at startup"
     : (isConnecting ? "Link check in progress..." : (mesh.error || "Waiting for auto-connect"));
 
+  deviceStatus.style.cursor = connected ? "pointer" : "";
   latestMeshtasticConnected = connected;
   if (typeof status.walletTestMode === "boolean") {
     walletState.testMode = status.walletTestMode;
@@ -2296,7 +2744,7 @@ async function loadMessages() {
 async function loadNodes() {
   try {
     const payload = await fetchJson("/api/nodes");
-    renderNodes(payload.nodes || []);
+    renderNodes(payload.nodes || [], payload.meshLinks || []);
   } catch (error) {
     latestNodes = [];
     syncNodeSelectors();
@@ -3266,6 +3714,36 @@ modelManagerClose.addEventListener("click", closeModelManager);
 aiSettingsClose.addEventListener("click", closeAiSettingsModal);
 helpModalClose.addEventListener("click", closeHelpModal);
 walletModalClose.addEventListener("click", closeWalletModal);
+deviceStatus.addEventListener("click", () => {
+  if (latestMeshtasticConnected) openDeviceMetaModal();
+});
+deviceMetaClose.addEventListener("click", closeDeviceMetaModal);
+deviceMetaModal.addEventListener("click", (event) => {
+  if (event.target.hasAttribute("data-close-device-meta")) {
+    closeDeviceMetaModal();
+  }
+});
+deviceMetaSave.addEventListener("click", () => {
+  deviceMetaStatus.textContent = "Saving...";
+  deviceMetaSave.disabled = true;
+  const payload = {
+    shortName: deviceMetaShortName.value.trim(),
+    longName: deviceMetaLongName.value.trim(),
+  };
+  const lat = deviceMetaLat.value.trim();
+  const lon = deviceMetaLon.value.trim();
+  if (lat !== "" && lon !== "") {
+    payload.latitude = parseFloat(lat);
+    payload.longitude = parseFloat(lon);
+  }
+  fetchJson("/api/device-meta", { method: "POST", body: JSON.stringify(payload) }).then(() => {
+    deviceMetaStatus.textContent = "Saved.";
+  }).catch((err) => {
+    deviceMetaStatus.textContent = `Error: ${err.message}`;
+  }).finally(() => {
+    deviceMetaSave.disabled = false;
+  });
+});
 modelManagerModal.addEventListener("click", (event) => {
   if (event.target.hasAttribute("data-close-model-manager")) {
     closeModelManager();
@@ -3295,6 +3773,18 @@ nodesMapModal.addEventListener("click", (event) => {
   }
 });
 
+document.getElementById("nodesMapExpand").addEventListener("click", () => {
+  const panel = nodesMapModal.querySelector(".modal-panel--map");
+  const isFullscreen = panel.classList.toggle("modal-panel--fullscreen");
+  const icon = document.getElementById("nodesMapExpandIcon");
+  if (icon) {
+    icon.innerHTML = isFullscreen
+      ? '<path d="M4 1v1.5H2.5V4H1V1h3zm4 0h3v3h-1.5V2.5H7V1zM1 8h1.5v2.5H4V12H1V8zm6 2.5V12h3V8h-1.5v2.5H7z"/>'
+      : '<path d="M1 1h4v1.5H2.5V4H1V1zm6 0h4v3h-1.5V2.5H7V1zM1 8h1.5v2.5H5V12H1V8zm8.5 2.5H7V12h4V8H9.5v2.5z"/>';
+  }
+  setTimeout(() => { if (_mapInstance) _mapInstance.invalidateSize(); }, 220);
+});
+
 nodeModalClose.addEventListener("click", closeNodeModal);
 nodeModal.addEventListener("click", (event) => {
   if (event.target.hasAttribute("data-close-node-modal")) {
@@ -3321,6 +3811,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && !nodeModal.classList.contains("hidden")) {
     closeNodeModal();
+    return;
+  }
+  if (event.key === "Escape" && !deviceMetaModal.classList.contains("hidden")) {
+    closeDeviceMetaModal();
   }
 });
 
@@ -3347,9 +3841,27 @@ function connectEvents() {
   source.addEventListener("status", () => {
     loadStatus();
   });
+  source.addEventListener("position_requested", () => { /* bridge confirmed request sent */ });
   source.addEventListener("nodes", (event) => {
     const payload = JSON.parse(event.data);
-    renderNodes(payload.nodes || []);
+    renderNodes(payload.nodes || [], payload.meshLinks || []);
+    // Check if we were waiting for a position update
+    if (_locateWatchPeerId) {
+      const updated = (payload.nodes || []).find((n) => (n.userId || n.id) === _locateWatchPeerId);
+      if (updated && updated.latitude && updated.latitude !== 0) {
+        clearTimeout(_locateTimeout);
+        _locateWatchNodeId = null;
+        _locateWatchPeerId = null;
+        const btn = nodeModalPositionButton;
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove("node-modal-action-btn--pending");
+          btn.classList.add("node-modal-action-btn--success");
+          const label = btn.querySelector("svg + *") || btn.lastChild;
+          if (label) label.textContent = " Show on map";
+        }
+      }
+    }
     if (_mapInstance && !nodesMapModal.classList.contains("hidden")) {
       _renderMapNodes(false);
     }

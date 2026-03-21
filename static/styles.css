@@ -1027,6 +1027,23 @@ button {
   width: min(960px, calc(100vw - 32px));
   max-height: min(90vh, 800px);
   height: min(90vh, 800px);
+  transition: width 0.2s ease, height 0.2s ease, max-height 0.2s ease, top 0.2s ease, left 0.2s ease, transform 0.2s ease;
+}
+
+.modal-panel--map.modal-panel--fullscreen {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  top: 0;
+  left: 0;
+  transform: none;
+  border-radius: 0;
+}
+
+.modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .nodes-map-container {
@@ -1123,26 +1140,7 @@ button {
   color: #8a9aaa;
 }
 
-.nodes-map-explore-btn {
-  margin-top: 2px;
-  padding: 5px 8px;
-  font-family: "Press Start Local", monospace;
-  font-size: 8px;
-  line-height: 1;
-  background: #2e3a45;
-  color: #c8d0d8;
-  border: 1px solid #3a4a55;
-  cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  width: 100%;
-  text-align: center;
-}
 
-.nodes-map-explore-btn:hover {
-  background: #3a4a55;
-  color: #e8f0f8;
-}
 
 .nodes-map-container .leaflet-popup-content-wrapper {
   background: #252b32;
@@ -1212,6 +1210,185 @@ button {
   background: #1a3040;
   color: #4a9eff;
   border-color: #4a9eff;
+}
+
+.nodes-map-hops-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  height: 28px;
+  border: 1px solid #3a4450;
+  border-radius: 3px;
+  background: #252b32;
+  box-sizing: border-box;
+}
+
+.nodes-map-hops-label {
+  font-family: "Press Start Local", monospace;
+  font-size: 7px;
+  color: #6a7a8a;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+
+.nodes-map-hops-control.hidden {
+  display: none;
+}
+
+.nodes-map-hops-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 3px;
+  background: #3a4a55;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.nodes-map-hops-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #4a9eff;
+  cursor: pointer;
+}
+
+.nodes-map-hops-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #4a9eff;
+  border: none;
+  cursor: pointer;
+}
+
+/* Radius style toggle button */
+.nodes-map-style-btn {
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #3a4a55;
+  border-radius: 3px;
+  background: #1e2a35;
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* fill style preview — single filled circle */
+.nodes-map-style-btn--fill::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(76, 175, 80, 0.25);
+  border: 1.5px solid #4caf50;
+}
+
+/* rings style preview — concentric mini-rings drawn with box-shadow */
+.nodes-map-style-btn--rings::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(76, 175, 80, 0.35);
+  border: 1.5px solid #4caf50;
+  box-shadow:
+    0 0 0 3px rgba(255, 193, 7, 0.18),
+    0 0 0 3px #ffc10755,
+    0 0 0 6px rgba(255, 112, 67, 0.12),
+    0 0 0 6px #ff704322;
+}
+
+.nodes-map-style-btn:hover {
+  border-color: #5a7a8a;
+  background: #2a3a45;
+}
+
+.nodes-map-legend {
+  background: rgba(18, 26, 32, 0.88);
+  border: 1px solid #2e3a45;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-family: "Press Start Local", monospace;
+  font-size: 9px;
+  color: #a0b0b8;
+  line-height: 1.6;
+  pointer-events: none;
+}
+
+.nodes-map-legend-title {
+  color: #c8d0d8;
+  font-size: 9px;
+  margin-bottom: 4px;
+  letter-spacing: 0.05em;
+}
+
+.nodes-map-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.nodes-map-legend-line {
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.nodes-map-legend-line--dashed {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px dashed;
+  flex-shrink: 0;
+}
+
+.nodes-map-legend-divider {
+  border-top: 1px solid #2e3a45;
+  margin: 4px 0;
+}
+
+.nodes-map-role-legend {
+  pointer-events: auto;
+  min-width: 110px;
+}
+
+.nodes-map-role-item {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 1px 2px;
+  transition: opacity 0.15s;
+}
+
+.nodes-map-role-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.nodes-map-role-item--dim {
+  opacity: 0.3;
+}
+
+.nodes-map-role-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.2);
 }
 
 .modal-head {
@@ -1632,6 +1809,26 @@ button {
 
 .node-modal-action-btn:hover {
   filter: brightness(1.15);
+}
+
+.node-modal-action-btn--pending {
+  opacity: 0.6;
+  cursor: wait;
+  animation: locate-pulse 1.2s ease-in-out infinite;
+}
+
+.node-modal-action-btn--success {
+  color: #4caf50;
+  border-color: #4caf50;
+}
+
+.node-modal-action-btn--success svg {
+  color: #4caf50;
+}
+
+@keyframes locate-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.9; }
 }
 
 .node-modal-body {
@@ -3143,4 +3340,50 @@ textarea,
   color: #e8b84e;
   text-transform: uppercase;
   font-size: 8px;
+}
+
+/* Device metadata — clickable status card */
+.device-status-labels {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Device metadata modal */
+.device-meta-panel {
+  width: min(320px, calc(100vw - 32px));
+}
+
+.device-meta-form {
+  display: grid;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.device-meta-field {
+  display: grid;
+  gap: 4px;
+}
+
+.device-meta-label {
+  font-size: 9px;
+  font-family: "Press Start Local", monospace;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.device-meta-hint {
+  font-size: 8px;
+  opacity: 0.6;
+  text-transform: none;
+  font-family: inherit;
+}
+
+.device-meta-form input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.device-meta-form button {
+  width: 100%;
+  margin-top: 4px;
 }

@@ -142,6 +142,7 @@ def snapshot_nodes(interface: Any) -> list[dict[str, Any]]:
                 "shortName": repair_text(user.get("shortName") or ""),
                 "longName": repair_text(user.get("longName") or ""),
                 "hardware": str(user.get("hwModel") or ""),
+                "meshtasticRole": str(user.get("role") or ""),
                 "lastHeard": node.get("lastHeard"),
                 "snr": node.get("snr"),
                 "hopsAway": node.get("hopsAway"),
@@ -265,6 +266,11 @@ def main() -> int:
             "fallbackPorts": fallback_ports,
             "availablePorts": available_ports,
             "source": "env" if requested_port else "auto",
+            "localNodeId": str(
+                getattr(getattr(interface, "localNode", None), "nodeNum", None)
+                or getattr(getattr(interface, "myInfo", None), "myNodeNum", None)
+                or ""
+            ),
         },
     )
     emit("nodes", {"nodes": snapshot_nodes(interface)})
@@ -281,6 +287,10 @@ def main() -> int:
         is_direct_message = to_id not in ("", "^all")
         active_interface = interface or kwargs.get("interface") or mesh_interface
         emit("nodes", {"nodes": snapshot_nodes(active_interface)})
+        relay_node = packet.get("relayNode") or None
+        hop_start = packet.get("hopStart")
+        hop_limit = packet.get("hopLimit")
+        rx_snr = packet.get("rxSnr")
         emit(
             "packet",
             {
@@ -289,6 +299,10 @@ def main() -> int:
                 "transport": "serial",
                 "isDirectMessage": is_direct_message,
                 "portnum": portnum,
+                "relayNode": relay_node,
+                "hopStart": hop_start,
+                "hopLimit": hop_limit,
+                "rxSnr": rx_snr,
                 "decoded": sanitize_for_json(decoded),
                 "packet": sanitize_for_json(packet),
             },
@@ -333,6 +347,44 @@ def main() -> int:
                 continue
             if message.get("type") == "refresh_nodes":
                 emit("nodes", {"nodes": snapshot_nodes(interface)})
+                continue
+            if message.get("type") == "request_position":
+                payload = message.get("payload", {})
+                dest_id = str(payload.get("destinationId", ""))
+                try:
+                    if hasattr(mesh_interface, "requestPosition"):
+                        mesh_interface.requestPosition(dest_id)
+                    else:
+                        from meshtastic import portnums_pb2  # type: ignore
+                        mesh_interface.sendData(
+                            b"",
+                            destinationId=dest_id,
+                            portNum=portnums_pb2.PortNum.Value("POSITION_APP"),
+                            wantAck=False,
+                            wantResponse=True,
+                        )
+                    emit("position_requested", {"destinationId": dest_id})
+                except Exception as exc:
+                    emit("error", {"message": f"position request failed: {exc}"})
+                continue
+            if message.get("type") == "set_device_meta":
+                payload = message.get("payload", {})
+                try:
+                    long_name = payload.get("longName")
+                    short_name = payload.get("shortName")
+                    if long_name is not None or short_name is not None:
+                        mesh_interface.localNode.setOwner(
+                            long_name=long_name if long_name is not None else None,
+                            short_name=short_name if short_name is not None else None,
+                        )
+                    lat = payload.get("latitude")
+                    lon = payload.get("longitude")
+                    if lat is not None and lon is not None:
+                        mesh_interface.localNode.setPosition(float(lat), float(lon), 0)
+                    emit("device_meta_saved", {})
+                    emit("nodes", {"nodes": snapshot_nodes(mesh_interface)})
+                except Exception as exc:
+                    emit("error", {"message": f"set_device_meta failed: {exc}"})
                 continue
             if message.get("type") != "send_text":
                 continue

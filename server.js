@@ -226,6 +226,10 @@ let testWalletData = null;
 let testCashuData = { mintUrl: TEST_CASHU_DEFAULT_MINT, proofs: [], pendingInvoices: [], history: [] };
 let swaps = [];
 let meshtasticStatus = { connected: false, mode: "starting", error: null };
+let localMeshNodeId = null;
+// Observed mesh links from relayNode field in packets: key = "fromMeshNum|viaMeshNum"
+const MESH_LINK_TTL_MS = 30 * 60 * 1000; // 30 min
+let meshLinks = {};
 let currentModelName = DEFAULT_MODEL_NAME;
 let llmStatus = { connected: false, mode: "starting", model: currentModelName, error: null, switching: false };
 let meshSendQueue = Promise.resolve();
@@ -1476,6 +1480,8 @@ function isNodeOnline(node) {
 }
 
 function getNodesPayload() {
+  const now = Date.now();
+  const activeLinks = Object.values(meshLinks).filter((l) => now - l.lastSeen < MESH_LINK_TTL_MS);
   return {
     nodes: Object.values(knownNodes)
       .sort((a, b) => {
@@ -1491,7 +1497,35 @@ function getNodesPayload() {
         online: isNodeOnline(node),
         live: Array.isArray(node.observedPortnums) && node.observedPortnums.length > 0,
       })),
+    meshLinks: activeLinks,
   };
+}
+
+// Track observed relay connections from packet relayNode field (Meshtastic fw 2.3+)
+function trackMeshLink(payload) {
+  if (!payload) return;
+  const relayNode = payload.relayNode;
+  if (!relayNode) return;
+  const senderNode = findNodeByMeshNum(payload.sender);
+  const relayNodeObj = findNodeByMeshNumInt(relayNode);
+  if (!senderNode || !relayNodeObj) return;
+  const snr = payload.rxSnr ?? null;
+  const now = Date.now();
+  // Link: sender <-> relay
+  const key = `${senderNode.meshNum}|${relayNodeObj.meshNum}`;
+  meshLinks[key] = { from: senderNode.meshNum, via: relayNodeObj.meshNum, snr, lastSeen: now };
+  broadcast("nodes", getNodesPayload());
+}
+
+function findNodeByMeshNum(userId) {
+  // userId is "!hexid" format; find by userId key
+  return knownNodes[String(userId || "")] || null;
+}
+
+function findNodeByMeshNumInt(meshNumInt) {
+  // meshNumInt is an integer node num; find node whose meshNum matches
+  const target = String(meshNumInt);
+  return Object.values(knownNodes).find((n) => String(n.meshNum || "") === target) || null;
 }
 
 function mergeBridgeNodes(nodes) {
@@ -1521,6 +1555,7 @@ function mergeBridgeNodes(nodes) {
       shortName: bridgeNode.shortName || existing.shortName || "",
       longName: bridgeNode.longName || existing.longName || "",
       hardware: bridgeNode.hardware || existing.hardware || "",
+      meshtasticRole: bridgeNode.meshtasticRole || existing.meshtasticRole || "",
       lastHeard: bridgeNode.lastHeard || existing.lastHeard || null,
       snr: bridgeNode.snr ?? existing.snr ?? null,
       hopsAway: bridgeNode.hopsAway ?? existing.hopsAway ?? null,
@@ -2632,6 +2667,7 @@ async function handleInboundMesh(payload) {
 
 let bridgeProcess = null;
 let llamaProcess = null;
+let bridgeRetryTimeout = null;
 let llamaHealthInterval = null;
 
 function updateLlmStatus(patch) {
@@ -2916,6 +2952,10 @@ async function deleteModel(filename) {
 }
 
 function stopBridge() {
+  if (bridgeRetryTimeout) {
+    clearTimeout(bridgeRetryTimeout);
+    bridgeRetryTimeout = null;
+  }
   if (nodesRefreshInterval) {
     clearInterval(nodesRefreshInterval);
     nodesRefreshInterval = null;
@@ -2987,11 +3027,13 @@ function startBridge() {
               newlineIndex = stdoutBuffer.indexOf("\n");
               continue;
             }
+            if (message.payload?.localNodeId) localMeshNodeId = String(message.payload.localNodeId);
             updateMeshtasticStatus(message.payload);
           } else if (message.type === "nodes") {
             mergeBridgeNodes(message.payload?.nodes || []);
           } else if (message.type === "packet") {
             mergePacket(message.payload?.sender, message.payload);
+            trackMeshLink(message.payload);
           } else if (message.type === "telemetry") {
             mergeTelemetry(message.payload?.sender, message.payload);
             addMessage({
@@ -3029,6 +3071,10 @@ function startBridge() {
                 transport: "system",
               });
             }
+          } else if (message.type === "device_meta_saved") {
+            // no-op, nodes snapshot follows
+          } else if (message.type === "position_requested") {
+            broadcast("position_requested", { nodeId: message.payload?.destinationId });
           } else if (message.type === "error") {
             if (activeBridge === bridgeProcess) {
               updateMeshtasticStatus({ error: message.payload.message || "bridge error" });
@@ -3070,7 +3116,17 @@ function startBridge() {
       return;
     }
     stopBridge();
-    updateMeshtasticStatus({ connected: false, mode: "stopped", error: `bridge exited with code ${code}` });
+    if (code !== 0) {
+      updateMeshtasticStatus({ connected: false, mode: "connecting", error: `bridge exited with code ${code}, retrying...` });
+      bridgeRetryTimeout = setTimeout(() => {
+        bridgeRetryTimeout = null;
+        if (!bridgeProcess) {
+          startBridge();
+        }
+      }, 5000);
+    } else {
+      updateMeshtasticStatus({ connected: false, mode: "stopped", error: `bridge exited with code ${code}` });
+    }
   });
 
   if (nodesRefreshInterval) {
@@ -3158,6 +3214,39 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && req.url === "/api/nodes") {
       return sendJson(res, 200, getNodesPayload());
+    }
+
+    if (req.method === "GET" && req.url === "/api/device-meta") {
+      const localNode = localMeshNodeId
+        ? Object.values(knownNodes).find((n) => String(n.meshNum) === localMeshNodeId)
+        : null;
+      return sendJson(res, 200, {
+        shortName: localNode?.shortName || "",
+        longName: localNode?.longName || "",
+        latitude: localNode?.latitude ?? null,
+        longitude: localNode?.longitude ?? null,
+      });
+    }
+
+    if (req.method === "POST" && req.url === "/api/device-meta") {
+      const body = await readJson(req);
+      try {
+        sendBridge({ type: "set_device_meta", payload: body });
+        return sendJson(res, 200, { ok: true });
+      } catch (e) {
+        return sendJson(res, 503, { error: e.message });
+      }
+    }
+
+    if (req.method === "POST" && req.url.startsWith("/api/node/") && req.url.endsWith("/request-position")) {
+      const nodeId = decodeURIComponent(req.url.slice("/api/node/".length, -"/request-position".length));
+      if (!nodeId) return sendJson(res, 400, { error: "nodeId required" });
+      try {
+        sendBridge({ type: "request_position", payload: { destinationId: nodeId } });
+        return sendJson(res, 200, { ok: true, nodeId });
+      } catch (e) {
+        return sendJson(res, 503, { error: "bridge not connected" });
+      }
     }
 
     if (req.method === "GET" && req.url.startsWith("/api/node-raw")) {

@@ -41,7 +41,7 @@
         <article class="panel control-panel">
           <div id="deviceStatus" class="device-status loading">
             <span class="device-dot"></span>
-            <div>
+            <div class="device-status-labels">
               <div id="deviceStatusTitle" class="device-status-title">Checking device</div>
               <div id="deviceStatusText" class="device-status-text">Auto-connect on startup</div>
             </div>
@@ -157,7 +157,14 @@
     <section class="modal-panel modal-panel--map panel" role="dialog" aria-modal="true" aria-labelledby="nodesMapTitle">
       <div class="panel-head modal-head">
         <h2 id="nodesMapTitle">Node Map</h2>
-        <button id="nodesMapClose" type="button" class="modal-close" aria-label="Close">X</button>
+        <div class="modal-head-actions">
+          <button id="nodesMapExpand" type="button" class="modal-close" aria-label="Toggle fullscreen">
+            <svg id="nodesMapExpandIcon" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1h4v1.5H2.5V4H1V1zm6 0h4v3h-1.5V2.5H7V1zM1 8h1.5v2.5H5V12H1V8zm8.5 2.5H7V12h4V8H9.5v2.5z"/>
+            </svg>
+          </button>
+          <button id="nodesMapClose" type="button" class="modal-close" aria-label="Close">X</button>
+        </div>
       </div>
       <div id="nodesMapContainer" class="nodes-map-container"></div>
     </section>
@@ -175,6 +182,14 @@
           <div id="nodeModalSubtitle" class="chat-subtitle">Snapshot</div>
         </div>
         <div class="node-modal-head-actions">
+          <button id="nodeModalPositionButton" type="button" class="node-modal-action-btn">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 2"/>
+            </svg>
+            Locate
+          </button>
           <button id="nodeModalChatButton" type="button" class="node-modal-action-btn">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
               <path d="M4 4h16v12H4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -982,6 +997,39 @@
       </div>
     </section>
   </div>
+  <div id="deviceMetaModal" class="modal-shell hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-device-meta></div>
+    <section class="modal-panel panel device-meta-panel" role="dialog" aria-modal="true" aria-labelledby="deviceMetaTitle">
+      <div class="panel-head modal-head">
+        <div>
+          <h2 id="deviceMetaTitle">Device Identity</h2>
+          <div class="chat-subtitle">Edit metadata your node broadcasts to the mesh</div>
+        </div>
+        <button id="deviceMetaClose" type="button" class="modal-close" aria-label="Close">X</button>
+      </div>
+      <div class="device-meta-form">
+        <label class="device-meta-field" for="deviceMetaShortName">
+          <span class="device-meta-label">Short Name <span class="device-meta-hint">(max 4 chars)</span></span>
+          <input id="deviceMetaShortName" type="text" maxlength="4" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="device-meta-field" for="deviceMetaLongName">
+          <span class="device-meta-label">Long Name</span>
+          <input id="deviceMetaLongName" type="text" maxlength="40" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="device-meta-field" for="deviceMetaLat">
+          <span class="device-meta-label">Latitude <span class="device-meta-hint">(optional)</span></span>
+          <input id="deviceMetaLat" type="number" step="any" placeholder="e.g. 55.7558">
+        </label>
+        <label class="device-meta-field" for="deviceMetaLon">
+          <span class="device-meta-label">Longitude <span class="device-meta-hint">(optional)</span></span>
+          <input id="deviceMetaLon" type="number" step="any" placeholder="e.g. 37.6173">
+        </label>
+        <div id="deviceMetaStatus" class="device-status-text"></div>
+        <button id="deviceMetaSave" type="button">Save to device</button>
+      </div>
+    </section>
+  </div>
+
   <script src="/static/app.js" defer></script>
 </body>
 </html>
