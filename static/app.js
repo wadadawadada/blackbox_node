@@ -1668,6 +1668,11 @@ function handleWalletModalFocusTrap(event) {
 
 function renderNodes(nodes = []) {
   latestNodes = Array.isArray(nodes) ? nodes.slice() : [];
+  const onlineCount = latestNodes.filter((n) => n.online).length;
+  const countEl = document.getElementById("nodesOnlineCount");
+  if (countEl) countEl.innerHTML = onlineCount > 0
+    ? `<span class="nodes-online-dot"></span>${onlineCount}`
+    : "";
   syncNodeSelectors();
   nodesList.innerHTML = "";
   if (!nodes.length) {
@@ -1865,6 +1870,10 @@ function closeNodeModal() {
 // ── Nodes Map ─────────────────────────────────────────────────────────────────
 let _mapInstance = null;
 let _mapMarkers = [];
+let _mapCircles = [];
+let _mapLines = [];
+let _mapShowRadius = false;
+let _mapShowLinks = false;
 
 function openNodesMap() {
   nodesMapModal.classList.remove("hidden");
@@ -1881,6 +1890,28 @@ function openNodesMap() {
       subdomains: "abcd",
       maxZoom: 19,
     }).addTo(_mapInstance);
+
+    const toggleControl = L.control({ position: "bottomleft" });
+    toggleControl.onAdd = function () {
+      const div = L.DomUtil.create("div", "nodes-map-toggle-control");
+      div.innerHTML =
+        `<button id="mapToggleRadius" class="nodes-map-toggle-btn" title="Signal radius">radius</button>` +
+        `<button id="mapToggleLinks" class="nodes-map-toggle-btn" title="Connection lines">links</button>`;
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    };
+    toggleControl.addTo(_mapInstance);
+
+    document.getElementById("mapToggleRadius").addEventListener("click", function () {
+      _mapShowRadius = !_mapShowRadius;
+      this.classList.toggle("nodes-map-toggle-btn--active", _mapShowRadius);
+      _renderMapNodes(false);
+    });
+    document.getElementById("mapToggleLinks").addEventListener("click", function () {
+      _mapShowLinks = !_mapShowLinks;
+      this.classList.toggle("nodes-map-toggle-btn--active", _mapShowLinks);
+      _renderMapNodes(false);
+    });
   }
 
   // Force Leaflet to recalculate size after the modal becomes visible
@@ -1895,17 +1926,40 @@ function closeNodesMap() {
   nodesMapModal.setAttribute("aria-hidden", "true");
 }
 
-function _renderMapNodes() {
+function _renderMapNodes(fitBounds = true) {
   if (!_mapInstance) return;
 
   _mapMarkers.forEach((m) => m.remove());
   _mapMarkers = [];
+  _mapCircles.forEach((c) => c.remove());
+  _mapCircles = [];
+  _mapLines.forEach((l) => l.remove());
+  _mapLines = [];
+
+  // Lookup tables for estimated positioning
+  const allByMeshNum = {};
+  for (const n of latestNodes) {
+    if (n.meshNum != null) allByMeshNum[String(n.meshNum)] = n;
+  }
+  const reverseLookup = {};
+  for (const n of latestNodes) {
+    if (!n.latitude || !n.longitude || n.latitude === 0 || n.longitude === 0) continue;
+    for (const nb of (n.neighbors || [])) {
+      const key = String(nb.nodeId || "");
+      if (!key) continue;
+      if (!reverseLookup[key]) reverseLookup[key] = [];
+      reverseLookup[key].push({ anchorNode: n, snr: nb.snr ?? null });
+    }
+  }
 
   const withPos = latestNodes.filter(
     (n) => n.latitude != null && n.longitude != null && n.latitude !== 0 && n.longitude !== 0
   );
 
-  withPos.forEach((node) => {
+  if (_mapShowRadius) _renderMapRadius(withPos);
+  if (_mapShowLinks) _renderMapLinks(withPos);
+
+  function _addMapMarker(lat, lon, node, estimated) {
     const online = !!node.online;
     const shortName = node.shortName || (node.userId || node.id || "?").slice(0, 4);
     const label = node.longName || node.shortName || node.userId || node.id || "?";
@@ -1913,11 +1967,17 @@ function _renderMapNodes() {
     const battery = node.batteryLevel != null ? `${node.batteryLevel}%` : "—";
     const nodeId = node.userId || node.id;
 
+    const dotClass = estimated
+      ? (online ? "nodes-map-marker-online-est" : "nodes-map-marker-offline-est")
+      : (online ? "nodes-map-marker-online" : "nodes-map-marker-offline");
+    const wrapClass = estimated ? "nodes-map-marker-wrap nodes-map-marker-wrap--est" : "nodes-map-marker-wrap";
+    const displayName = estimated ? `~${shortName}` : shortName;
+
     const icon = L.divIcon({
       className: "",
-      html: `<div class="nodes-map-marker-wrap">` +
-            `<div class="${online ? "nodes-map-marker-online" : "nodes-map-marker-offline"}"></div>` +
-            `<span class="nodes-map-label">${shortName}</span>` +
+      html: `<div class="${wrapClass}">` +
+            `<div class="${dotClass}"></div>` +
+            `<span class="nodes-map-label">${displayName}</span>` +
             `</div>`,
       iconSize: [90, 14],
       iconAnchor: [5, 7],
@@ -1928,18 +1988,16 @@ function _renderMapNodes() {
       `<div class="nodes-map-popup">` +
       `<div class="nodes-map-popup-name">${label}</div>` +
       `<div class="nodes-map-popup-row">${status} · battery: ${battery}</div>` +
+      (estimated ? `<div class="nodes-map-popup-row nodes-map-popup-row--est">~ position estimated</div>` : "") +
       `<button class="nodes-map-explore-btn" onclick="openNodeModal('${nodeId}')">explore</button>` +
       `</div>`;
 
-    const marker = L.marker([node.latitude, node.longitude], { icon })
+    const marker = L.marker([lat, lon], { icon })
       .bindPopup(popupHtml, { closeButton: false, autoPan: false })
       .addTo(_mapInstance);
 
     let _closeTimer = null;
-    marker.on("mouseover", function () {
-      clearTimeout(_closeTimer);
-      this.openPopup();
-    });
+    marker.on("mouseover", function () { clearTimeout(_closeTimer); this.openPopup(); });
     marker.on("mouseout", function () {
       const m = this;
       _closeTimer = setTimeout(() => m.closePopup(), 200);
@@ -1950,13 +2008,210 @@ function _renderMapNodes() {
       popupEl.addEventListener("mouseenter", () => clearTimeout(_closeTimer));
       popupEl.addEventListener("mouseleave", () => { _closeTimer = setTimeout(() => marker.closePopup(), 200); });
     });
-
     _mapMarkers.push(marker);
-  });
+  }
 
-  if (withPos.length > 0) {
+  // Collect all render entries: GPS nodes + estimated nodes
+  const renderEntries = [];
+  withPos.forEach((node) => renderEntries.push({ lat: node.latitude, lon: node.longitude, node, estimated: false }));
+  const noGpsNodes = latestNodes.filter(
+    (n) => !(n.latitude != null && n.longitude != null && n.latitude !== 0 && n.longitude !== 0)
+  );
+  for (const node of noGpsNodes) {
+    const est = _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup);
+    if (!est) continue;
+    renderEntries.push({ lat: est.latitude, lon: est.longitude, node, estimated: true });
+  }
+
+  // Group by rounded position (~11m grid) and spread overlapping nodes in a small circle
+  const SPREAD_R_M = 70; // spread radius in meters
+  const posGroups = {};
+  for (const entry of renderEntries) {
+    const key = `${entry.lat.toFixed(4)}|${entry.lon.toFixed(4)}`;
+    if (!posGroups[key]) posGroups[key] = [];
+    posGroups[key].push(entry);
+  }
+  for (const group of Object.values(posGroups)) {
+    if (group.length < 2) continue;
+    const baseLat = group[0].lat;
+    const baseLon = group[0].lon;
+    const mPerDegLat = 111320;
+    const mPerDegLon = 111320 * Math.cos(baseLat * Math.PI / 180);
+    group.forEach((entry, i) => {
+      const angle = (2 * Math.PI * i) / group.length;
+      entry.lat = baseLat + (SPREAD_R_M / mPerDegLat) * Math.sin(angle);
+      entry.lon = baseLon + (SPREAD_R_M / mPerDegLon) * Math.cos(angle);
+    });
+  }
+
+  for (const { lat, lon, node, estimated } of renderEntries) {
+    _addMapMarker(lat, lon, node, estimated);
+  }
+
+  if (fitBounds && withPos.length > 0) {
     const bounds = L.latLngBounds(withPos.map((n) => [n.latitude, n.longitude]));
     _mapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  }
+}
+
+function _snrToRadius(snr) {
+  if (snr == null) return 8000;
+  if (snr > 10) return 15000;
+  if (snr > 0)  return 10000;
+  if (snr > -10) return 6000;
+  return 3000;
+}
+
+function _renderMapRadius(withPos) {
+  for (const node of withPos) {
+    const radius = _snrToRadius(node.snr);
+    const online = !!node.online;
+    const circle = L.circle([node.latitude, node.longitude], {
+      radius,
+      color: online ? "#4caf50" : "#8b4a4a",
+      weight: 1,
+      opacity: 0.45,
+      fillOpacity: 0.06,
+      interactive: false,
+    }).addTo(_mapInstance);
+    _mapCircles.push(circle);
+  }
+}
+
+function _haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function _deterministicAngle(str) {
+  let h = 0;
+  for (let i = 0; i < (str || "").length; i++)
+    h = (Math.imul(31, h) + (str || "").charCodeAt(i)) | 0;
+  return ((h >>> 0) % 360) * (Math.PI / 180);
+}
+
+function _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup) {
+  // ourNode (hopsAway=0) → place at centroid of all GPS nodes
+  if (node.hopsAway === 0) {
+    if (withPos.length === 0) return null;
+    const lat = withPos.reduce((s, n) => s + n.latitude, 0) / withPos.length;
+    const lon = withPos.reduce((s, n) => s + n.longitude, 0) / withPos.length;
+    return { latitude: lat, longitude: lon };
+  }
+
+  const myKey = String(node.meshNum ?? "");
+  const angle = _deterministicAngle(node.userId || node.id || myKey || "x");
+  const seenKey = new Set();
+  const anchors = [];
+
+  function addAnchor(lat, lon, snr) {
+    const k = `${lat.toFixed(5)}|${lon.toFixed(5)}`;
+    if (seenKey.has(k)) return;
+    seenKey.add(k);
+    anchors.push({ lat, lon, snr: snr ?? null });
+  }
+
+  // Forward: this node's own neighbors that have GPS
+  for (const nb of (node.neighbors || [])) {
+    const anchor = allByMeshNum[String(nb.nodeId || "")];
+    if (!anchor || !anchor.latitude || !anchor.longitude || anchor.latitude === 0 || anchor.longitude === 0) continue;
+    addAnchor(anchor.latitude, anchor.longitude, nb.snr ?? null);
+  }
+
+  // Reverse: GPS nodes that list this node in their neighbors
+  for (const entry of (myKey ? (reverseLookup[myKey] || []) : [])) {
+    addAnchor(entry.anchorNode.latitude, entry.anchorNode.longitude, entry.snr);
+  }
+
+  // Weighted average of anchor-based estimates
+  if (anchors.length > 0) {
+    let totalWeight = 0, sumLat = 0, sumLon = 0;
+    for (const a of anchors) {
+      const distM = _snrToRadius(a.snr);
+      const dLat = (distM / 111320) * Math.sin(angle);
+      const dLon = (distM / (111320 * Math.cos(a.lat * Math.PI / 180))) * Math.cos(angle);
+      const w = Math.max(1, (a.snr ?? -10) + 15);
+      sumLat += (a.lat + dLat) * w;
+      sumLon += (a.lon + dLon) * w;
+      totalWeight += w;
+    }
+    return { latitude: sumLat / totalWeight, longitude: sumLon / totalWeight };
+  }
+
+  // hopsAway fallback: use ourNode as anchor
+  if (node.hopsAway != null && node.hopsAway > 0) {
+    const ourNode = withPos.find((n) => n.hopsAway === 0);
+    if (!ourNode) return null;
+    const syntheticSnr = 10 - node.hopsAway * 8;
+    const distM = _snrToRadius(syntheticSnr);
+    const dLat = (distM / 111320) * Math.sin(angle);
+    const dLon = (distM / (111320 * Math.cos(ourNode.latitude * Math.PI / 180))) * Math.cos(angle);
+    return { latitude: ourNode.latitude + dLat, longitude: ourNode.longitude + dLon };
+  }
+
+  return null;
+}
+
+function _renderMapLinks(withPos) {
+  const drawn = new Set();
+
+  function drawLine(lat1, lon1, lat2, lon2, snr) {
+    const key = [lat1, lon1, lat2, lon2].map((v) => v.toFixed(6)).join("|");
+    const keyRev = [lat2, lon2, lat1, lon1].map((v) => v.toFixed(6)).join("|");
+    if (drawn.has(key) || drawn.has(keyRev)) return;
+    drawn.add(key);
+    const opacity = snr == null ? 0.4 : Math.max(0.2, Math.min(0.85, 0.4 + snr / 25));
+    const line = L.polyline(
+      [[lat1, lon1], [lat2, lon2]],
+      { color: "#4a9eff", weight: 1.5, opacity, interactive: false }
+    ).addTo(_mapInstance);
+    _mapLines.push(line);
+  }
+
+  // Build meshNum lookup
+  const byMeshNum = {};
+  for (const node of withPos) {
+    if (node.meshNum != null) byMeshNum[String(node.meshNum)] = node;
+  }
+
+  // — Real topology from NEIGHBORINFO_APP —
+  // Track which nodes have sent their neighbor list
+  const hasNeighbors = new Set();
+  for (const node of withPos) {
+    if (!node.neighbors || node.neighbors.length === 0) continue;
+    hasNeighbors.add(node.meshNum ? String(node.meshNum) : null);
+    for (const nb of node.neighbors) {
+      const nbNode = byMeshNum[String(nb.nodeId || "")];
+      if (!nbNode) continue;
+      drawLine(node.latitude, node.longitude, nbNode.latitude, nbNode.longitude, nb.snr ?? null);
+    }
+  }
+
+  // — hopsAway fallback for nodes that haven't sent NEIGHBORINFO yet —
+  const ourNode = withPos.find((n) => n.hopsAway === 0);
+  if (!ourNode) return;
+
+  // Only include nodes without neighbor data; dedup via drawn Set handles the rest
+  const hop1 = withPos.filter((n) => n.hopsAway === 1 && !hasNeighbors.has(String(n.meshNum ?? "")));
+  const hop1All = withPos.filter((n) => n.hopsAway === 1); // for relay lookup
+  const hop2 = withPos.filter((n) => n.hopsAway === 2 && !hasNeighbors.has(String(n.meshNum ?? "")));
+
+  for (const node of hop1) {
+    drawLine(ourNode.latitude, ourNode.longitude, node.latitude, node.longitude, node.snr ?? null);
+  }
+  for (const node of hop2) {
+    if (hop1All.length === 0) continue;
+    let relay = hop1All[0];
+    let minDist = Infinity;
+    for (const h1 of hop1All) {
+      const d = _haversineKm(h1.latitude, h1.longitude, node.latitude, node.longitude);
+      if (d < minDist) { minDist = d; relay = h1; }
+    }
+    drawLine(relay.latitude, relay.longitude, node.latitude, node.longitude, node.snr ?? null);
   }
 }
 
@@ -3095,6 +3350,9 @@ function connectEvents() {
   source.addEventListener("nodes", (event) => {
     const payload = JSON.parse(event.data);
     renderNodes(payload.nodes || []);
+    if (_mapInstance && !nodesMapModal.classList.contains("hidden")) {
+      _renderMapNodes(false);
+    }
   });
   source.addEventListener("model-manager", (event) => {
     renderModelManager(JSON.parse(event.data));

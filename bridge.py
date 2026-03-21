@@ -129,6 +129,12 @@ def snapshot_nodes(interface: Any) -> list[dict[str, Any]]:
         position = node.get("position", {}) or {}
         metrics = node.get("deviceMetrics", {}) or {}
         environment = node.get("environmentMetrics", {}) or {}
+        neighbor_info = node.get("neighborInfo", {}) or {}
+        neighbors = [
+            {"nodeId": str(int(n.get("nodeId") or 0)), "snr": n.get("snr")}
+            for n in (neighbor_info.get("neighbors") or [])
+            if n.get("nodeId")
+        ]
         nodes.append(
             {
                 "id": str(node.get("num") or node_id or user.get("id") or "unknown"),
@@ -144,6 +150,7 @@ def snapshot_nodes(interface: Any) -> list[dict[str, Any]]:
                 "latitude": position.get("latitude"),
                 "longitude": position.get("longitude"),
                 "environmentMetrics": environment,
+                "neighbors": neighbors,
                 "raw": sanitize_for_json(node),
             }
         )

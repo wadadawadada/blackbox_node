@@ -161,6 +161,11 @@ body {
   margin-bottom: 6px;
 }
 
+.panel-head h2 {
+  display: flex;
+  align-items: center;
+}
+
 .panel-action-button {
   min-width: 0;
   padding: 4px 7px;
@@ -866,6 +871,28 @@ button {
   opacity: 0.88;
 }
 
+.nodes-online-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--success);
+  margin-left: 6px;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.nodes-online-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 4px var(--success);
+  flex-shrink: 0;
+}
+
 .node-dot {
   width: 8px;
   height: 8px;
@@ -1041,6 +1068,32 @@ button {
   border: 2px solid rgba(255,255,255,0.2);
 }
 
+.nodes-map-marker-online-est {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px dashed var(--success);
+}
+
+.nodes-map-marker-offline-est {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px dashed #8b4a4a;
+}
+
+.nodes-map-marker-wrap--est {
+  opacity: 0.65;
+}
+
+.nodes-map-popup-row--est {
+  color: #5a7a8a;
+}
+
 .nodes-map-label {
   font-family: "Press Start Local", monospace;
   font-size: 8px;
@@ -1115,6 +1168,50 @@ button {
 
 .nodes-map-container .leaflet-control-zoom a:hover {
   background: #3a4450;
+}
+
+.nodes-map-container .leaflet-control-attribution {
+  background: rgba(26, 31, 37, 0.85) !important;
+  color: #4a5a6a !important;
+  border-top: 1px solid #2a3540;
+}
+
+.nodes-map-container .leaflet-control-attribution a {
+  color: #5a7a8a !important;
+}
+
+.nodes-map-toggle-control {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+}
+
+.nodes-map-toggle-btn {
+  display: block;
+  padding: 5px 8px;
+  font-family: "Press Start Local", monospace;
+  font-size: 7px;
+  line-height: 1;
+  background: #252b32;
+  color: #6a7a8a;
+  border: 1px solid #3a4450;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  width: 100%;
+  text-align: left;
+}
+
+.nodes-map-toggle-btn:hover {
+  background: #2e3a45;
+  color: #c8d0d8;
+}
+
+.nodes-map-toggle-btn--active {
+  background: #1a3040;
+  color: #4a9eff;
+  border-color: #4a9eff;
 }
 
 .modal-head {

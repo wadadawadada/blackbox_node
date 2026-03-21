@@ -1529,6 +1529,7 @@ function mergeBridgeNodes(nodes) {
       latitude: bridgeNode.latitude ?? existing.latitude ?? null,
       longitude: bridgeNode.longitude ?? existing.longitude ?? null,
       environmentMetrics: bridgeNode.environmentMetrics || existing.environmentMetrics || null,
+      neighbors: bridgeNode.neighbors && bridgeNode.neighbors.length > 0 ? bridgeNode.neighbors : (existing.neighbors || []),
       raw: bridgeNode.raw || existing.raw || null,
       observedPortnums: existing.observedPortnums || [],
       lastDecoded: existing.lastDecoded || null,
