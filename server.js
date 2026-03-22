@@ -233,6 +233,10 @@ let meshLinks = {};
 let currentModelName = DEFAULT_MODEL_NAME;
 let llmStatus = { connected: false, mode: "starting", model: currentModelName, error: null, switching: false };
 let meshSendQueue = Promise.resolve();
+// Map clientMsgId -> message.id (for linking sent event to outgoing message)
+const pendingMsgByClientId = new Map();
+// Map packetId -> message.id (for linking routing ack to outgoing message)
+const pendingMsgByPacketId = new Map();
 let modelManagerOperation = {
   active: false,
   action: null,
@@ -1305,6 +1309,15 @@ function addMessage(entry) {
   messages = messages.slice(-300);
   persistMessages();
   broadcast("message", item);
+  return item;
+}
+
+function updateMessageAck(messageId, ack) {
+  const msg = messages.find((m) => m.id === messageId);
+  if (!msg) return;
+  msg.ack = ack;
+  persistMessages();
+  broadcast("ack_update", { id: messageId, ack });
 }
 
 function clearMessages(scope, peerId = "") {
@@ -2570,6 +2583,7 @@ function enqueueMeshBatch(destinationId, packets, sender = "local-ai", batchDela
   const task = async () => {
     for (let index = 0; index < packets.length; index += 1) {
       const messageText = packets[index];
+      const clientMsgId = `cmid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       sendBridge({
         type: "send_text",
         payload: {
@@ -2579,15 +2593,18 @@ function enqueueMeshBatch(destinationId, packets, sender = "local-ai", batchDela
           waitForAck: false,
           retryOnAckTimeout: MESH_ACK_RETRY_COUNT,
           ackTimeoutRetryDelayMs: MESH_ACK_RETRY_DELAY_MS,
+          clientMsgId,
         },
       });
-      addMessage({
+      const msg = addMessage({
         direction: "out",
         sender,
         recipient: destinationId,
         text: messageText,
         transport: "serial",
+        ack: "pending",
       });
+      pendingMsgByClientId.set(clientMsgId, msg.id);
       if (index < packets.length - 1) {
         await sleep(batchDelayMs);
       }
@@ -3059,23 +3076,31 @@ function startBridge() {
                 transport: "system",
               });
             });
+          } else if (message.type === "ack") {
+            const { packetId, errorReason } = message.payload || {};
+            if (packetId != null) {
+              const msgId = pendingMsgByPacketId.get(packetId);
+              if (msgId != null) {
+                const ack = (!errorReason || errorReason === "NONE") ? "delivered" : "failed";
+                updateMessageAck(msgId, ack);
+                pendingMsgByPacketId.delete(packetId);
+              }
+            }
           } else if (message.type === "sent") {
             if (activeBridge !== bridgeProcess) {
               newlineIndex = stdoutBuffer.indexOf("\n");
               continue;
             }
             updateMeshtasticStatus({ connected: true, mode: "serial", error: null });
-            if (message.payload?.wantAck) {
-              const deliveryState = message.payload?.acked === false
-                ? "mesh ack timeout"
-                : (message.payload?.acked === true ? "mesh ack ok" : "mesh queued");
-              addMessage({
-                direction: "system",
-                sender: "bridge",
-                recipient: message.payload?.destinationId || "-",
-                text: `${deliveryState}: ${message.payload?.text || ""}`,
-                transport: "system",
-              });
+            const clientMsgId = message.payload?.clientMsgId;
+            const packetId = message.payload?.packetId;
+            if (clientMsgId && pendingMsgByClientId.has(clientMsgId)) {
+              const msgId = pendingMsgByClientId.get(clientMsgId);
+              pendingMsgByClientId.delete(clientMsgId);
+              updateMessageAck(msgId, "sent");
+              if (packetId != null) {
+                pendingMsgByPacketId.set(packetId, msgId);
+              }
             }
           } else if (message.type === "device_meta_saved") {
             // no-op, nodes snapshot follows

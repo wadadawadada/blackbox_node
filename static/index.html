@@ -99,10 +99,6 @@
                     <button id="chatModeDmButton" type="button" class="chat-mode-btn" aria-selected="false">Node DM</button>
                   </div>
                 </div>
-                <div class="ai-reply-row">
-                  <span class="ai-reply-label">AI mesh reply</span>
-                  <button id="meshAiReplyToggle" type="button" class="ai-reply-btn" aria-pressed="false">off</button>
-                </div>
               </div>
               <button id="clearChatButton" type="button" class="panel-action-button chat-clear-button" aria-label="Clear chat">Clear</button>
               <div class="chat-subtitle-row">
@@ -167,7 +163,7 @@
               <path d="M1 1h4v1.5H2.5V4H1V1zm6 0h4v3h-1.5V2.5H7V1zM1 8h1.5v2.5H5V12H1V8zm8.5 2.5H7V12h4V8H9.5v2.5z"/>
             </svg>
           </button>
-          <button id="nodesMapClose" type="button" class="modal-close" aria-label="Close">X</button>
+          <button id="nodesMapClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
         </div>
       </div>
       <div id="nodesMapContainer" class="nodes-map-container"></div>
@@ -208,7 +204,7 @@
             </svg>
             Send funds
           </button>
-          <button id="nodeModalClose" type="button" class="modal-close" aria-label="Close">X</button>
+          <button id="nodeModalClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
         </div>
       </div>
       <div class="node-modal-body">
@@ -248,7 +244,7 @@
           <h2 id="modelManagerTitle">LLM Manager</h2>
           <div id="modelManagerSubtitle" class="chat-subtitle">Installed and compatible GGUF models</div>
         </div>
-        <button id="modelManagerClose" type="button" class="modal-close" aria-label="Close">X</button>
+        <button id="modelManagerClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
       </div>
       <div class="model-manager-status">
         <div id="modelManagerStatusText" class="device-status-text">Loading model catalog...</div>
@@ -275,7 +271,7 @@
             <h2 id="aiSettingsTitle">AI Settings</h2>
             <div class="chat-subtitle">Instructions and generation controls</div>
           </div>
-          <button id="aiSettingsClose" type="button" class="modal-close" aria-label="Close">X</button>
+          <button id="aiSettingsClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
         </div>
         <div class="ai-settings-meta panel">
           <div id="aiSettingsCurrentModel" class="device-status-text">Current model: n/a</div>
@@ -299,7 +295,13 @@
             </div>
           </div>
           <div class="modal-section">
-            <div class="modal-label">Mesh Replies</div>
+            <div class="modal-label" style="display:flex;align-items:center;justify-content:space-between">
+              <span>Mesh Replies</span>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span class="ai-reply-label">AI via MESH</span>
+                <button id="meshAiReplyToggle" type="button" class="ai-reply-btn" aria-pressed="false">off</button>
+              </div>
+            </div>
             <div class="ai-settings-input-grid">
               <label class="ai-settings-field" for="aiSettingsMeshTemperature"><span>Temperature</span><input id="aiSettingsMeshTemperature" type="number" min="0" max="2" step="0.05"></label>
               <label class="ai-settings-field" for="aiSettingsMeshTopP"><span>Top P</span><input id="aiSettingsMeshTopP" type="number" min="0.05" max="1" step="0.05"></label>
@@ -322,7 +324,7 @@
           <h2 id="helpModalTitle">About BLACKBOX NODE</h2>
           <div id="helpModalSubtitle" class="chat-subtitle">Emergency-first Meshtastic AI companion</div>
         </div>
-        <button id="helpModalClose" type="button" class="modal-close" aria-label="Close">X</button>
+        <button id="helpModalClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
       </div>
       <div id="helpDefaultView" class="help-default-view">
         <div class="help-grid">
@@ -425,7 +427,7 @@
             <span id="walletTestModeBadge" class="wallet-test-badge" hidden>TEST</span>
           </div>
         </div>
-        <button id="walletModalClose" type="button" class="modal-close" aria-label="Close wallet modal">X</button>
+        <button id="walletModalClose" type="button" class="modal-close" aria-label="Close wallet modal"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
       </div>
 
       <div class="wallet-modal-body">
@@ -1009,7 +1011,7 @@
           <h2 id="deviceMetaTitle">Device Identity</h2>
           <div class="chat-subtitle">Edit metadata your node broadcasts to the mesh</div>
         </div>
-        <button id="deviceMetaClose" type="button" class="modal-close" aria-label="Close">X</button>
+        <button id="deviceMetaClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
       </div>
       <div class="device-meta-form">
         <label class="device-meta-field" for="deviceMetaShortName">

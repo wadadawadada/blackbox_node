@@ -710,12 +710,20 @@ function renderDmChat() {
   thread.forEach((message) => {
     const bubble = document.createElement("div");
     bubble.className = `chat-bubble ${message.direction === "out" ? "user" : "node"}`;
+    if (message.id != null) bubble.dataset.msgId = message.id;
 
     const meta = document.createElement("div");
     meta.className = "chat-bubble-meta";
     const author = message.direction === "out" ? "You" : (message.sender || "Node");
     const stamp = formatChatTime(message.createdAt);
     meta.textContent = stamp ? `${author} | ${stamp}` : author;
+
+    if (message.direction === "out") {
+      const ackIcon = document.createElement("span");
+      ackIcon.className = `chat-bubble-ack chat-bubble-ack--${message.ack || "pending"}`;
+      ackIcon.title = message.ack === "delivered" ? "Delivered" : message.ack === "failed" ? "Not delivered" : message.ack === "sent" ? "Sent to mesh" : "Sending...";
+      bubble.appendChild(ackIcon);
+    }
 
     const body = document.createElement("div");
     body.className = "chat-bubble-body";
@@ -1987,6 +1995,7 @@ let _mapShowLinks = false;
 let _mapColorByRole = false;
 let _mapRoleFilter = new Set(); // empty = show all
 let _mapHoverMaxHops = 3;
+let _mapShowTooltips = true;
 
 const _MAP_ROLE_INT = {
   "0": "CLIENT", "1": "CLIENT_MUTE", "2": "ROUTER", "3": "ROUTER_CLIENT",
@@ -2045,6 +2054,11 @@ function openNodesMap() {
       zoom: 2,
       zoomControl: true,
       attributionControl: true,
+      scrollWheelZoom: true,
+      wheelPxPerZoomLevel: 120,
+      wheelDebounceTime: 40,
+      zoomSnap: 0.25,
+      zoomDelta: 0.25,
     });
     _mapInstance.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank">Leaflet</a>');
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
@@ -2057,6 +2071,9 @@ function openNodesMap() {
     toggleControl.onAdd = function () {
       const div = L.DomUtil.create("div", "nodes-map-toggle-control");
       div.innerHTML =
+        `<button id="mapToggleTooltips" class="nodes-map-toggle-btn nodes-map-toggle-btn--active" title="Node tooltips on hover">` +
+          `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>` +
+        `</button>` +
         `<button id="mapToggleRadius" class="nodes-map-toggle-btn" title="Signal radius">radius</button>` +
         `<button id="mapToggleLinks" class="nodes-map-toggle-btn" title="Connection lines">links</button>` +
         `<button id="mapToggleRole" class="nodes-map-toggle-btn" title="Color by role">role</button>` +
@@ -2101,6 +2118,13 @@ function openNodesMap() {
     };
     roleLegendControl.addTo(_mapInstance);
 
+    document.getElementById("mapToggleTooltips").addEventListener("click", function () {
+      _mapShowTooltips = !_mapShowTooltips;
+      this.classList.toggle("nodes-map-toggle-btn--active", _mapShowTooltips);
+      if (!_mapShowTooltips) {
+        _mapMarkers.forEach(m => m.closePopup());
+      }
+    });
     document.getElementById("mapToggleRadius").addEventListener("click", function () {
       _mapShowRadius = !_mapShowRadius;
       this.classList.toggle("nodes-map-toggle-btn--active", _mapShowRadius);
@@ -2280,7 +2304,7 @@ function _renderMapNodes(fitBounds = true) {
     let _closeTimer = null;
     marker.on("mouseover", function () {
       clearTimeout(_closeTimer);
-      this.openPopup();
+      if (_mapShowTooltips) this.openPopup();
       drawHoverLinks();
     });
     marker.on("mouseout", function () {
@@ -3892,6 +3916,21 @@ function connectEvents() {
   });
   source.addEventListener("swaps", (event) => {
     renderActiveSwaps(JSON.parse(event.data) || []);
+  });
+  source.addEventListener("ack_update", (event) => {
+    const { id, ack } = JSON.parse(event.data);
+    // Update in-memory latestMessages
+    const msg = latestMessages.find((m) => m.id === id);
+    if (msg) msg.ack = ack;
+    // Update bubble in DOM if visible
+    const bubble = chatReplyText.querySelector(`[data-msg-id="${id}"]`);
+    if (bubble) {
+      const icon = bubble.querySelector(".chat-bubble-ack");
+      if (icon) {
+        icon.className = `chat-bubble-ack chat-bubble-ack--${ack}`;
+        icon.title = ack === "delivered" ? "Delivered" : ack === "failed" ? "Not delivered" : ack === "sent" ? "Sent to mesh" : "Sending...";
+      }
+    }
   });
   source.onerror = () => {
     setTimeout(() => {

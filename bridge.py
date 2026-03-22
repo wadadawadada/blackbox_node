@@ -307,6 +307,17 @@ def main() -> int:
                 "packet": sanitize_for_json(packet),
             },
         )
+        if portnum == "ROUTING_APP":
+            request_id = decoded.get("requestId")
+            if request_id is not None:
+                routing = decoded.get("routing", {})
+                error_reason = str(routing.get("errorReason") or "NONE")
+                emit("ack", {
+                    "packetId": request_id,
+                    "errorReason": error_reason,
+                    "from": sender,
+                })
+            return
         if telemetry or portnum == "TELEMETRY_APP":
             emit(
                 "telemetry",
@@ -441,6 +452,7 @@ def main() -> int:
                         "acked": acked,
                         "attempts": attempts,
                         "packetId": getattr(packet, "id", None),
+                        "clientMsgId": payload.get("clientMsgId"),
                     },
                 )
             except Exception as exc:
