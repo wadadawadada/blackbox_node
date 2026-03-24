@@ -166,6 +166,12 @@ body {
   align-items: center;
 }
 
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .panel-action-button {
   min-width: 0;
   padding: 4px 7px;
@@ -2034,6 +2040,7 @@ button {
 }
 
 .log-item {
+  position: relative;
   border-radius: 0;
   padding: 6px 8px;
   border-top: 1px solid var(--edge-light);
@@ -2041,6 +2048,30 @@ button {
   border-right: 1px solid var(--edge-dark);
   border-bottom: 1px solid var(--edge-dark);
   background: var(--panel-2);
+}
+
+.log-copy-btn {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.log-item:hover .log-copy-btn {
+  opacity: 1;
+}
+
+.log-copy-btn:hover {
+  color: var(--fg);
 }
 
 .log-item.in {

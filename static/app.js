@@ -10,6 +10,7 @@ const openHelpButton = document.getElementById("openHelpButton");
 const openWalletButton = document.getElementById("openWalletButton");
 const nodesList = document.getElementById("nodesList");
 const clearLogButton = document.getElementById("clearLogButton");
+const copyAllLogButton = document.getElementById("copyAllLogButton");
 const chatForm = document.getElementById("chatForm");
 const chatReplyText = document.getElementById("chatReplyText");
 const chatText = document.getElementById("chatText");
@@ -299,12 +300,31 @@ async function fetchJson(url, options = {}) {
   return payload;
 }
 
+const COPY_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const CHECK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+function copyWithFeedback(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.innerHTML = CHECK_SVG;
+    btn.style.color = "var(--success)";
+    btn.style.opacity = "1";
+    setTimeout(() => {
+      btn.innerHTML = COPY_SVG;
+      btn.style.color = "";
+      btn.style.opacity = "";
+    }, 1500);
+  }).catch(() => {});
+}
+
 function appendLog(message) {
   const item = document.createElement("article");
   item.className = `log-item ${message.direction || "system"}`;
   const meta = `${message.createdAt || new Date().toLocaleTimeString()} | ${message.transport || "n/a"} | ${message.sender} -> ${message.recipient || "-"}`;
-  item.innerHTML = `<div class="log-meta">${meta}</div><div class="log-text"></div>`;
+  item.innerHTML = `<button class="log-copy-btn" title="Copy">${COPY_SVG}</button><div class="log-meta">${meta}</div><div class="log-text"></div>`;
   item.querySelector(".log-text").textContent = message.text || "";
+  item.querySelector(".log-copy-btn").addEventListener("click", (e) => {
+    copyWithFeedback(e.currentTarget, `${meta}\n${message.text || ""}`);
+  });
   logBox.appendChild(item);
   while (logBox.children.length > 120) {
     logBox.removeChild(logBox.firstChild);
@@ -4233,6 +4253,15 @@ chatForm.addEventListener("submit", async (event) => {
 
 clearLogButton.addEventListener("click", () => {
   logBox.innerHTML = "";
+});
+
+copyAllLogButton.addEventListener("click", () => {
+  const lines = [...logBox.querySelectorAll(".log-item")].map(item => {
+    const meta = item.querySelector(".log-meta")?.textContent || "";
+    const text = item.querySelector(".log-text")?.textContent || "";
+    return `${meta}\n${text}`;
+  });
+  copyWithFeedback(copyAllLogButton, lines.join("\n\n"));
 });
 
 if (clearChatButton) {

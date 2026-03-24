@@ -82,7 +82,14 @@
         <section class="panel log-panel">
           <div class="panel-head">
             <h2>Log</h2>
-            <button id="clearLogButton" type="button" class="panel-action-button" aria-label="Clear log">Clear</button>
+            <div class="panel-head-actions">
+              <button id="copyAllLogButton" type="button" class="panel-action-button" aria-label="Copy all log entries" title="Copy all">
+                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+              <button id="clearLogButton" type="button" class="panel-action-button" aria-label="Clear log" title="Clear log">
+                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              </button>
+            </div>
           </div>
           <div id="log" class="log"></div>
         </section>
@@ -100,7 +107,9 @@
                   </div>
                 </div>
               </div>
-              <button id="clearChatButton" type="button" class="panel-action-button chat-clear-button" aria-label="Clear chat">Clear</button>
+              <button id="clearChatButton" type="button" class="panel-action-button chat-clear-button" aria-label="Clear chat" title="Clear chat">
+                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              </button>
               <div class="chat-subtitle-row">
                 <div id="chatSubtitle" class="chat-subtitle">Offline AI</div>
               </div>
@@ -610,7 +619,9 @@
             <div class="wallet-fund-card" id="activeSwapsCard" hidden>
               <div class="swap-card-header">
                 <div class="modal-label">Active Swaps</div>
-                <button id="clearSwapsButton" type="button" class="wallet-token-copy-btn">Clear</button>
+                <button id="clearSwapsButton" type="button" class="wallet-token-copy-btn" title="Clear">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                </button>
               </div>
               <div id="activeSwapsList" class="wallet-pending-list"></div>
             </div>
