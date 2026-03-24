@@ -1883,7 +1883,7 @@ async function openNodeModal(nodeId) {
     const payload = await fetchJson(`/api/node-raw?id=${encodeURIComponent(nodeId)}`);
     const isOnline = !!payload.online;
     nodeModalDot.className = `node-dot${isOnline ? " node-dot--online" : " node-dot--offline"}`;
-    nodeModalSubtitle.textContent = `${payload.role || "node"} Р вЂ™Р’В· ${payload.observedPortnums?.length ? "live packets seen" : "snapshot only"}`;
+    nodeModalSubtitle.textContent = `${payload.role || "node"} | ${payload.observedPortnums?.length ? "live packets seen" : "snapshot only"}`;
 
     const raw = payload.raw || {};
     const lat = raw.position?.latitude ?? raw.latitude;
@@ -1898,7 +1898,7 @@ async function openNodeModal(nodeId) {
     renderKv(nodeModalStatus, [
       ["Online", isOnline ? "yes" : "no"],
       ["Live", payload.live ? "yes" : "no"],
-      ["Hops", raw.hopsAway ?? "Р Р†Р вЂљРІР‚Сњ"],
+      ["Hops", raw.hopsAway ?? "-"],
       ["SNR", formatMetric("SNR", raw.snr)],
     ]);
 
