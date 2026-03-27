@@ -159,6 +159,10 @@ const walletSeedEyeIcon = document.getElementById("walletSeedEyeIcon");
 const walletSeedEyeOffIcon = document.getElementById("walletSeedEyeOffIcon");
 const walletTestModeToggle = document.getElementById("walletTestModeToggle");
 const walletTestModeBadge = document.getElementById("walletTestModeBadge");
+const walletTestModeWarningModal = document.getElementById("walletTestModeWarningModal");
+const walletTestModeWarningClose = document.getElementById("walletTestModeWarningClose");
+const walletTestModeWarningCancel = document.getElementById("walletTestModeWarningCancel");
+const walletTestModeWarningConfirm = document.getElementById("walletTestModeWarningConfirm");
 const walletFaucetCard = document.getElementById("walletFaucetCard");
 const faucetAddressButton = document.getElementById("faucetAddressButton");
 const faucetInvoiceButton = document.getElementById("faucetInvoiceButton");
@@ -311,6 +315,7 @@ const walletState = {
   },
   lastFocused: null,
 };
+let walletTestModeTogglePending = false;
 
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
@@ -912,15 +917,41 @@ function isIncomingDmMessage(message) {
   return isDirectMessage && Boolean(String(message.sender || "").trim());
 }
 
+function normalizeIncomingCashuTokenInput(rawInput) {
+  const text = String(rawInput || "").trim();
+  if (!text) return "";
+
+  const sanitize = (candidate) => String(candidate || "")
+    .replace(/\s+/g, "")
+    .replace(/^[`'"]+|[`'"]+$/g, "")
+    .replace(/[),.;:!?]+$/g, "")
+    .trim();
+
+  const direct = /(?:\[\d+\s*sats?\]\s*)?(cashu[AB][^\s]+)/i.exec(text);
+  if (direct?.[1]) return sanitize(direct[1]);
+
+  const joinedFragments = text
+    .split(/\r?\n+/)
+    .map((line) => String(line || "").replace(/^\s*\[\d+\/\d+\]\s*/g, "").trim())
+    .filter(Boolean)
+    .join("");
+  const fromFragments = /(?:\[\d+\s*sats?\]\s*)?(cashu[AB][^\s]+)/i.exec(joinedFragments);
+  if (fromFragments?.[1]) return sanitize(fromFragments[1]);
+
+  const compact = text.replace(/\s+/g, "");
+  const fromCompact = /(cashu[AB][A-Za-z0-9_\-+=/]+)/i.exec(compact);
+  if (fromCompact?.[1]) return sanitize(fromCompact[1]);
+
+  return sanitize(text);
+}
+
 // Parse optional "[250 sats] cashuA..." wrapper, returns { token, sats } or null
 function parseCashuMessage(text) {
   const t = (text || "").trim();
-  // With amount prefix: [250 sats] cashuA...
-  const prefixed = /^\[(\d+)\s*sats?\]\s*(cashu[AB]\S+)/i.exec(t);
-  if (prefixed) return { token: prefixed[2], sats: Number(prefixed[1]) };
-  // Plain token
-  if (t.startsWith("cashuA") || t.startsWith("cashuB")) return { token: t, sats: null };
-  return null;
+  const token = normalizeIncomingCashuTokenInput(t);
+  if (!token || !/^cashu[AB]/i.test(token)) return null;
+  const prefixed = /^\[(\d+)\s*sats?\]/i.exec(t);
+  return { token, sats: prefixed ? Number(prefixed[1]) : null };
 }
 
 // Detect if a string is a Cashu token (with or without amount prefix)
@@ -947,50 +978,65 @@ function extractSatsFromFragment(content) {
 // - Orphaned fragments (no [1/T]) fall through as regular messages
 function groupCashuFragments(thread) {
   const result = [];
-  let i = 0;
-  while (i < thread.length) {
+  const consumed = new Set();
+
+  for (let i = 0; i < thread.length; i++) {
+    if (consumed.has(i)) continue;
     const msg = thread[i];
     const part = parseMeshPart(msg.text);
+    const startsLikeCashu = part
+      ? /^(\[\d+\s*sats?\]\s*)?cashu[AB]/i.test(String(part.content || "").trim())
+      : false;
 
-    if (part && part.partNum === 1 && part.total > 1) {
-      // Count how many consecutive parts we actually have
-      let k = 1;
-      while (k < part.total) {
-        const next = thread[i + k];
-        if (!next || next.sender !== msg.sender) break;
+    if (part && part.partNum === 1 && part.total > 1 && startsLikeCashu) {
+      // Collect by part number (supports out-of-order and duplicate packets).
+      const partsByNum = new Map();
+      partsByNum.set(1, part.content);
+      const indices = [i];
+
+      for (let j = i + 1; j < thread.length; j++) {
+        if (consumed.has(j)) continue;
+        const next = thread[j];
+        if (next.sender !== msg.sender) continue;
         const np = parseMeshPart(next.text);
-        if (!np || np.partNum !== k + 1 || np.total !== part.total) break;
-        k++;
-      }
-
-      if (k === part.total) {
-        // All parts present Р Р†Р вЂљРІР‚Сњ assemble and check
-        const parts = [];
-        for (let j = 0; j < part.total; j++) parts.push(parseMeshPart(thread[i + j].text).content);
-        const assembled = parts.join("");
-        if (isCashuTokenText(assembled)) {
-          result.push({ ...msg, text: assembled, isCashuToken: true, fragmentCount: part.total });
-          i += part.total;
+        if (!np) continue;
+        if (np.total !== part.total) continue;
+        if (np.partNum === 1) {
+          const sameStartDuplicate = String(np.content || "") === String(part.content || "");
+          if (!sameStartDuplicate) break;
+          indices.push(j);
           continue;
         }
-      } else {
-        // Partial transfer in progress Р Р†Р вЂљРІР‚Сњ show progress bar
-        const sats = extractSatsFromFragment(part.content);
-        result.push({ ...msg, isCashuFragment: true, receivedParts: k, totalParts: part.total, sats });
-        i += k;
-        continue;
+        if (np.partNum < 1 || np.partNum > part.total) continue;
+        indices.push(j);
+        if (!partsByNum.has(np.partNum)) {
+          partsByNum.set(np.partNum, np.content);
+          if (partsByNum.size === part.total) break;
+        }
       }
+
+      for (const idx of indices) consumed.add(idx);
+
+      if (partsByNum.size === part.total) {
+        const assembled = Array.from({ length: part.total }, (_, n) => partsByNum.get(n + 1) || "").join("");
+        if (isCashuTokenText(assembled)) {
+          result.push({ ...msg, text: assembled, isCashuToken: true, fragmentCount: part.total });
+          continue;
+        }
+      }
+
+      const sats = extractSatsFromFragment(part.content);
+      result.push({ ...msg, isCashuFragment: true, receivedParts: partsByNum.size, totalParts: part.total, sats });
+      continue;
     }
 
     // Single-message cashu token (short enough to fit in one packet)
     if (isCashuTokenText(msg.text)) {
       result.push({ ...msg, isCashuToken: true, fragmentCount: 1 });
-      i++;
       continue;
     }
 
     result.push(msg);
-    i++;
   }
   return result;
 }
@@ -1074,7 +1120,8 @@ function renderDmChat() {
 
     } else if (message.isCashuToken) {
       const parsed = parseCashuMessage(message.text.trim());
-      const token = parsed ? parsed.token : message.text.trim();
+      const tokenRaw = parsed ? parsed.token : message.text.trim();
+      const token = normalizeIncomingCashuTokenInput(tokenRaw);
       const sats = parsed ? parsed.sats : null;
       // Amount badge
       if (sats !== null) {
@@ -1086,7 +1133,7 @@ function renderDmChat() {
 
       const tokenHint = document.createElement("div");
       tokenHint.style.cssText = "font-size:0.72em;opacity:0.5;margin-bottom:8px";
-      tokenHint.textContent = `Cashu token${message.fragmentCount > 1 ? ` Р вЂ™Р’В· ${message.fragmentCount} parts` : ""}`;
+      tokenHint.textContent = `Cashu token${message.fragmentCount > 1 ? ` - ${message.fragmentCount} parts` : ""}`;
       body.appendChild(tokenHint);
 
       const redeemBtn = document.createElement("button");
@@ -1107,6 +1154,10 @@ function renderDmChat() {
       }
 
       redeemBtn.addEventListener("click", async () => {
+        if (!token) {
+          statusSpan.textContent = "Token parse failed (empty token).";
+          return;
+        }
         redeemBtn.disabled = true;
         statusSpan.textContent = "Redeeming...";
         try {
@@ -1116,7 +1167,7 @@ function renderDmChat() {
           });
           redeemedCashuTokens.add(token);
           statusSpan.textContent = data.unverified
-            ? `+${data.amount} sats (offline, unverified Р Р†Р вЂљРІР‚Сњ confirm when online)`
+            ? `+${data.amount} sats (offline, unverified; confirm when online)`
             : `+${data.amount} sats added to balance`;
           redeemBtn.textContent = "Redeemed";
           if (cashuState) { cashuState.balance = data.balance; applyCashuState(); }
@@ -1643,6 +1694,27 @@ function closeDeviceMetaModal() {
   deviceMetaModal.classList.add("hidden");
   deviceMetaModal.setAttribute("aria-hidden", "true");
 }
+
+function openWalletTestModeWarningModal() {
+  if (!walletTestModeWarningModal) return;
+  walletTestModeWarningModal.classList.remove("hidden");
+  walletTestModeWarningModal.setAttribute("aria-hidden", "false");
+  if (walletTestModeWarningCancel) walletTestModeWarningCancel.focus();
+}
+
+function closeWalletTestModeWarningModal() {
+  if (!walletTestModeWarningModal) return;
+  walletTestModeWarningModal.classList.add("hidden");
+  walletTestModeWarningModal.setAttribute("aria-hidden", "true");
+}
+
+function cancelWalletTestModeWarning() {
+  if (walletTestModeTogglePending) return;
+  if (walletTestModeToggle) {
+    walletTestModeToggle.checked = true;
+  }
+  closeWalletTestModeWarningModal();
+}
 function getFocusableElements(container) {
   return Array.from(container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter((element) => {
     return !element.disabled && element.offsetParent !== null;
@@ -1696,7 +1768,7 @@ function setWalletStatusRow() {
 }
 
 function formatSats(sats) {
-  if (sats === null || sats === undefined) return "Р Р†Р вЂљРІР‚Сњ";
+  if (sats === null || sats === undefined) return "-";
   const unit = walletState.settings.preferredUnit;
   if (unit === "BTC") {
     return `${(sats / 1e8).toFixed(8)} BTC`;
@@ -1706,13 +1778,13 @@ function formatSats(sats) {
 
 function updateWalletBalanceDisplay() {
   if (!walletState.walletConfigured) {
-    walletBalanceValue.textContent = "Р Р†Р вЂљРІР‚Сњ";
+    walletBalanceValue.textContent = "-";
     walletBalanceSub.textContent = "No wallet created";
     walletRefreshBalance.hidden = true;
     return;
   }
   if (!walletState.balance) {
-    walletBalanceValue.textContent = "Р Р†Р вЂљРІР‚Сњ";
+    walletBalanceValue.textContent = "-";
     walletBalanceSub.textContent = "Balance unavailable (offline?)";
     walletRefreshBalance.hidden = false;
     return;
@@ -1744,7 +1816,7 @@ async function loadWalletTransactions() {
     walletState.history = (data.transactions || []).map((tx) => ({
       id: tx.txid,
       direction: tx.direction,
-      peer: tx.txid ? tx.txid.slice(0, 12) + "..." : "Р Р†Р вЂљРІР‚Сњ",
+      peer: tx.txid ? tx.txid.slice(0, 12) + "..." : "-",
       amount: tx.amount,
       unit: "sats",
       status: tx.confirmed ? "Confirmed" : "Pending",
@@ -1779,7 +1851,7 @@ function renderWalletSettingsInfo() {
   const rows = [
     ["Type", "BIP84 HD Wallet (P2WPKH)"],
     ["Network", tm ? "Bitcoin Testnet (Mutinynet)" : "Bitcoin Mainnet"],
-    ["Address", walletState.address ? walletState.address.slice(0, 20) + "..." : "Р Р†Р вЂљРІР‚Сњ"],
+    ["Address", walletState.address ? walletState.address.slice(0, 20) + "..." : "-"],
     ["Path", tm ? "m/84'/1'/0'/0/0" : "m/84'/0'/0'/0/0"],
     ["Storage", tm ? "./data/test_wallet.json" : "./data/wallet.json"],
   ];
@@ -1839,8 +1911,8 @@ function applyCashuState() {
   if (cashuSendNoMint) cashuSendNoMint.hidden = cfg;
   if (cashuSendContent) cashuSendContent.hidden = !cfg;
   // Home balances
-  if (cashuBalanceValue) cashuBalanceValue.textContent = cfg ? formatSats(cashuState.balance) : "Р Р†Р вЂљРІР‚Сњ";
-  if (cashuBalanceSub) cashuBalanceSub.textContent = cfg ? (cashuState.mintUrl || "") : "No mint configured Р Р†Р вЂљРІР‚Сњ go to Fund";
+  if (cashuBalanceValue) cashuBalanceValue.textContent = cfg ? formatSats(cashuState.balance) : "-";
+  if (cashuBalanceSub) cashuBalanceSub.textContent = cfg ? (cashuState.mintUrl || "") : "No mint configured - go to Fund";
   if (cashuSendAvailable) cashuSendAvailable.textContent = formatSats(cashuState.balance);
   if (swapCashuAvailable) swapCashuAvailable.textContent = formatSats(cashuState.balance);
   // Pending (offline) balance row
@@ -1914,7 +1986,21 @@ async function trySwapPending() {
       walletState.history.unshift({ id: `cashu-confirm-${Date.now()}`, direction: "Confirmed", peer: "Pending proofs", amount: data.swapped, unit: "sats", status: "Confirmed", timestamp: new Date().toLocaleString() });
       renderWalletHistory();
     }
-  } catch { /* still offline */ }
+  } catch (e) {
+    const message = String(e?.message || e || "Pending proof confirmation failed.");
+    if (cashuReceiveStatus) {
+      cashuReceiveStatus.textContent = `Pending proof confirmation failed: ${message}`;
+    }
+    const lower = message.toLowerCase();
+    if (
+      lower.includes("no mint configured") ||
+      lower.includes("token is invalid") ||
+      lower.includes("mint returned no spendable proofs") ||
+      lower.includes("empty token payload")
+    ) {
+      stopSwapPendingPoller();
+    }
+  }
 }
 
 // Auto-poll: try to confirm pending proofs every 30s when there are any
@@ -4844,7 +4930,7 @@ async function loadSendBtcPanel() {
       sendBtcBalance.textContent = formatSats(bal.confirmed) +
         (bal.unconfirmed ? ` (+${formatSats(bal.unconfirmed)} unconfirmed)` : "");
     }
-  } catch { if (sendBtcBalance) sendBtcBalance.textContent = "Р Р†Р вЂљРІР‚Сњ"; }
+  } catch { if (sendBtcBalance) sendBtcBalance.textContent = "-"; }
   try {
     const fees = await fetchJson("/api/wallet/fees");
     if (sendBtcFeeRate && !sendBtcFeeRate.value) sendBtcFeeRate.value = fees.halfHourFee || 5;
@@ -4884,7 +4970,7 @@ if (sendBtcForm) {
         body: JSON.stringify({ toAddress, amountSats, feeRate }),
       });
       const explorer = walletState.testMode ? "https://mutinynet.com/tx/" : "https://mempool.space/tx/";
-      if (sendBtcStatus) sendBtcStatus.innerHTML = `Sent! <a href="${explorer}${data.txid}" target="_blank" rel="noopener">${data.txid.slice(0, 12)}Р Р†Р вЂљР’В¦</a> Р вЂ™Р’В· fee: ${formatSats(data.fee)}`;
+      if (sendBtcStatus) sendBtcStatus.innerHTML = `Sent! <a href="${explorer}${data.txid}" target="_blank" rel="noopener">${data.txid.slice(0, 12)}...</a> | fee: ${formatSats(data.fee)}`;
       if (sendBtcAddress) sendBtcAddress.value = "";
       if (sendBtcAmount) sendBtcAmount.value = "";
       setTimeout(loadSendBtcPanel, 2000);
@@ -4899,15 +4985,15 @@ if (sendBtcLnForm) {
     if (!invoice) { if (sendBtcLnStatus) sendBtcLnStatus.textContent = "Enter a Lightning invoice"; return; }
     const tm = walletState.testMode;
     const lower = invoice.toLowerCase();
-    if (tm && !lower.startsWith("lntbs")) { if (sendBtcLnStatus) sendBtcLnStatus.textContent = "Test mode: use lntbsР Р†Р вЂљР’В¦ (signet) invoice"; return; }
-    if (!tm && !lower.startsWith("lnbc")) { if (sendBtcLnStatus) sendBtcLnStatus.textContent = "Use lnbcР Р†Р вЂљР’В¦ (mainnet) invoice"; return; }
+    if (tm && !lower.startsWith("lntbs")) { if (sendBtcLnStatus) sendBtcLnStatus.textContent = "Test mode: use an lntbs... (signet) invoice"; return; }
+    if (!tm && !lower.startsWith("lnbc")) { if (sendBtcLnStatus) sendBtcLnStatus.textContent = "Use an lnbc... (mainnet) invoice"; return; }
     if (sendBtcLnStatus) sendBtcLnStatus.textContent = "Creating swap...";
     try {
       const data = await fetchJson("/api/wallet/pay-lightning", {
         method: "POST",
         body: JSON.stringify({ invoice }),
       });
-      if (sendBtcLnStatus) sendBtcLnStatus.textContent = `Swap created Р вЂ™Р’В· ${formatSats(data.expectedAmount)} BTC sent Р вЂ™Р’В· waiting for Lightning paymentР Р†Р вЂљР’В¦`;
+      if (sendBtcLnStatus) sendBtcLnStatus.textContent = `Swap created | ${formatSats(data.expectedAmount)} BTC sent | waiting for Lightning payment...`;
       if (sendBtcLnInvoice) sendBtcLnInvoice.value = "";
       setTimeout(loadSendBtcPanel, 2000);
     } catch (err) { if (sendBtcLnStatus) sendBtcLnStatus.textContent = err.message; }
@@ -4954,7 +5040,7 @@ cashuSetMintButton.addEventListener("click", async () => {
     cashuState.mintUrl = data.mintUrl;
     cashuMintStatus.textContent = "Connected!";
     if (cashuMintInfo) {
-      cashuMintInfo.textContent = data.name ? `${data.name}${data.description ? " Р Р†Р вЂљРІР‚Сњ " + data.description : ""}` : data.mintUrl;
+      cashuMintInfo.textContent = data.name ? `${data.name}${data.description ? " - " + data.description : ""}` : data.mintUrl;
       cashuMintInfo.hidden = false;
     }
     applyCashuState();
@@ -4977,7 +5063,7 @@ cashuCreateInvoiceButton.addEventListener("click", async () => {
     cashuInvoicePr.value = data.pr;
     cashuInvoiceQr.src = data.qr;
     cashuInvoiceBlock.hidden = false;
-    cashuInvoiceStatus.textContent = `Invoice for ${amount} sats Р Р†Р вЂљРІР‚Сњ pay with Lightning`;
+    cashuInvoiceStatus.textContent = `Invoice for ${amount} sats - pay with Lightning`;
     // Add to pending
     cashuState.pendingInvoices = cashuState.pendingInvoices || [];
     cashuState.pendingInvoices.push({ hash: data.hash, amount, pr: data.pr, createdAt: new Date().toISOString() });
@@ -5051,21 +5137,24 @@ walletSendForm.addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify({ amount, peer: recipient || "unknown", memo }),
     });
+    const issuedToken = normalizeIncomingCashuTokenInput(data.token);
+    if (!issuedToken) {
+      throw new Error("Mint returned an empty token.");
+    }
     cashuState.balance = cashuState.balance - amount;
     applyCashuState();
     walletSendStatus.textContent = `Token created: ${amount} sats`;
-    cashuSendTokenOutput.textContent = data.token;
+    cashuSendTokenOutput.textContent = issuedToken;
     cashuSendTokenBlock.hidden = false;
-        walletSendStatus.textContent = `Token ready - mesh send failed, copy manually`;
     if (recipient && transport === "Meshtastic DM") {
       try {
         await fetchJson("/api/mesh/send", {
           method: "POST",
-          body: JSON.stringify({ destinationId: recipient, text: `[${amount} sats] ${data.token}` }),
+          body: JSON.stringify({ destinationId: recipient, text: `[${amount} sats] ${issuedToken}` }),
         });
         walletSendStatus.textContent = `Sent ${amount} sats to ${recipient} via mesh`;
-      } catch {
-        walletSendStatus.textContent = `Token ready Р Р†Р вЂљРІР‚Сњ mesh send failed, copy manually`;
+      } catch (meshErr) {
+        walletSendStatus.textContent = `Token ready, mesh send failed (${meshErr?.message || "unknown"}). Copy token and resend manually.`;
       }
     }
     walletAmountInput.value = "";
@@ -5114,14 +5203,14 @@ cashuMeltForm.addEventListener("submit", async (event) => {
 
 cashuReceiveForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const token = cashuReceiveInput.value.trim();
+  const token = normalizeIncomingCashuTokenInput(cashuReceiveInput.value);
   if (!token) { cashuReceiveStatus.textContent = "Paste a cashuA... token."; return; }
   cashuReceiveStatus.textContent = "Redeeming...";
   try {
     const data = await fetchJson("/api/cashu/receive", { method: "POST", body: JSON.stringify({ token }) });
     cashuState.balance = data.balance;
     cashuReceiveStatus.textContent = data.unverified
-      ? `Accepted ${data.amount} sats offline (unverified Р Р†Р вЂљРІР‚Сњ redeem online to confirm)`
+      ? `Accepted ${data.amount} sats offline (unverified; redeem online to confirm)`
       : `Received ${data.amount} sats! Balance: ${data.balance} sats`;
     cashuReceiveInput.value = "";
     applyCashuState();
@@ -5146,7 +5235,7 @@ function renderActiveSwaps(swaps) {
   active.forEach((s) => {
     const el = document.createElement("div");
     el.className = "wallet-pending-item";
-    const dir = s.type === "btc-to-cashu" ? "BTC Р Р†РІР‚В РІР‚в„ў Cashu" : "Cashu Р Р†РІР‚В РІР‚в„ў BTC";
+    const dir = s.type === "btc-to-cashu" ? "BTC -> Cashu" : "Cashu -> BTC";
     const amt = s.amount ? `${s.amount} sats` : "";
     el.innerHTML = `<span class="wallet-pending-label">${dir} ${amt}</span><span class="wallet-pending-status">${s.status}</span>`;
     activeSwapsList.appendChild(el);
@@ -5212,7 +5301,7 @@ function startSwapLnPoll(hash) {
       cashuState.balance = data.balance;
       cashuState.currentInvoiceHash = null;
       cashuState.pendingInvoices = (cashuState.pendingInvoices || []).filter((i) => i.hash !== hash);
-      if (swapLnCheckStatus) swapLnCheckStatus.textContent = `Paid! +${data.amount} sats Р Р†Р вЂљРІР‚Сњ balance updated.`;
+      if (swapLnCheckStatus) swapLnCheckStatus.textContent = `Paid! +${data.amount} sats - balance updated.`;
       if (swapLnBlock) swapLnBlock.hidden = true;
       if (swapLnAmount) swapLnAmount.value = "";
       if (swapLnStatus) swapLnStatus.textContent = "";
@@ -5246,8 +5335,8 @@ if (swapLnInvoiceButton) {
     try {
       const data = await fetchJson("/api/cashu/invoice", { method: "POST", body: JSON.stringify({ amount }) });
       if (swapLnStatus) swapLnStatus.textContent = walletState.testMode
-        ? `Signet invoice for ${amount} sats Р Р†Р вЂљРІР‚Сњ pay at faucet.mutinynet.com (Lightning tab)`
-        : `Invoice for ${amount} sats Р Р†Р вЂљРІР‚Сњ pay with any Lightning wallet`;
+        ? `Signet invoice for ${amount} sats - pay at faucet.mutinynet.com (Lightning tab)`
+        : `Invoice for ${amount} sats - pay with any Lightning wallet`;
       showSwapLnInvoice(data.pr, data.qr, data.hash, amount);
     } catch (e) {
       if (swapLnStatus) swapLnStatus.textContent = e.message;
@@ -5349,14 +5438,14 @@ if (swapCashuToBtcForm) {
 if (swapCashuReceiveForm) {
   swapCashuReceiveForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const token = (swapCashuReceiveInput?.value || "").trim();
+    const token = normalizeIncomingCashuTokenInput(swapCashuReceiveInput?.value || "");
     if (!token) { if (swapCashuReceiveStatus) swapCashuReceiveStatus.textContent = "Paste a cashuA... token."; return; }
     if (swapCashuReceiveStatus) swapCashuReceiveStatus.textContent = "Redeeming...";
     try {
       const data = await fetchJson("/api/cashu/receive", { method: "POST", body: JSON.stringify({ token }) });
       cashuState.balance = data.balance;
       if (swapCashuReceiveStatus) swapCashuReceiveStatus.textContent = data.unverified
-        ? `Accepted ${data.amount} sats offline (unverified Р Р†Р вЂљРІР‚Сњ redeem online to confirm)`
+        ? `Accepted ${data.amount} sats offline (unverified; redeem online to confirm)`
         : `Received ${data.amount} sats! Balance: ${data.balance} sats`;
       if (swapCashuReceiveInput) swapCashuReceiveInput.value = "";
       applyCashuState();
@@ -5381,17 +5470,22 @@ if (swapCashuSendForm) {
     if (btn) btn.disabled = true;
     try {
       const data = await fetchJson("/api/cashu/send", { method: "POST", body: JSON.stringify({ amount, peer: recipient || "manual", memo: "" }) });
+      const issuedToken = normalizeIncomingCashuTokenInput(data.token);
+      if (!issuedToken) {
+        throw new Error("Mint returned an empty token.");
+      }
       cashuState.balance = Math.max(0, cashuState.balance - amount);
-          if (swapCashuSendStatus) swapCashuSendStatus.textContent = "Token ready - mesh send failed, copy manually";
-      if (swapCashuSendToken) swapCashuSendToken.value = data.token;
+      if (swapCashuSendToken) swapCashuSendToken.value = issuedToken;
       if (swapCashuSendResult) swapCashuSendResult.hidden = false;
       if (swapCashuSendStatus) swapCashuSendStatus.textContent = `Token created: ${amount} sats`;
       if (recipient) {
         try {
-          await fetchJson("/api/mesh/send", { method: "POST", body: JSON.stringify({ destinationId: recipient, text: data.token }) });
+          await fetchJson("/api/mesh/send", { method: "POST", body: JSON.stringify({ destinationId: recipient, text: issuedToken }) });
           if (swapCashuSendStatus) swapCashuSendStatus.textContent = `Sent ${amount} sats to ${recipient} via mesh`;
-        } catch {
-          if (swapCashuSendStatus) swapCashuSendStatus.textContent = "Token ready Р Р†Р вЂљРІР‚Сњ mesh send failed, copy manually";
+        } catch (meshErr) {
+          if (swapCashuSendStatus) {
+            swapCashuSendStatus.textContent = `Token ready, mesh send failed (${meshErr?.message || "unknown"}). Copy token and resend manually.`;
+          }
         }
       }
       if (swapCashuSendAmount) swapCashuSendAmount.value = "";
@@ -5438,7 +5532,7 @@ function updateSeedRevealState(visible) {
     if (walletState.mnemonic) {
       fillMnemonicGrid(walletSeedRevealGrid, walletState.mnemonic);
     } else {
-      walletSeedRevealGrid.innerHTML = '<div style="grid-column:1/-1;color:var(--muted);font-size:9px">Seed not available Р Р†Р вЂљРІР‚Сњ page was reloaded. Check data/wallet.json</div>';
+      walletSeedRevealGrid.innerHTML = '<div style="grid-column:1/-1;color:var(--muted);font-size:9px">Seed not available - page was reloaded. Check data/wallet.json</div>';
     }
   }
 }
@@ -5484,28 +5578,62 @@ async function doCreateWallet(triggerButton, statusEl) {
   }
 }
 
+async function saveWalletTestMode(enable) {
+  if (walletTestModeTogglePending) return;
+  walletTestModeTogglePending = true;
+  if (walletSettingsStatus) {
+    walletSettingsStatus.textContent = enable ? "Enabling test mode..." : "Disabling test mode...";
+  }
+  if (walletTestModeToggle) {
+    walletTestModeToggle.disabled = true;
+  }
+  if (walletTestModeWarningConfirm) {
+    walletTestModeWarningConfirm.disabled = true;
+  }
+  try {
+    const result = await fetchJson("/api/wallet/testmode", { method: "POST", body: JSON.stringify({ enabled: enable }) });
+    walletState.testMode = result.testMode;
+    walletState.walletConfigured = false;
+    walletState.address = null;
+    walletState.mnemonic = null;
+    walletState.balance = null;
+    walletState.qrLoaded = false;
+    walletState.history = [];
+    renderWalletHistory();
+    applyTestMode();
+    applyWalletConfiguredState();
+    if (walletSettingsStatus) {
+      walletSettingsStatus.textContent = "";
+    }
+    closeWalletTestModeWarningModal();
+    loadWalletState();
+  } catch (err) {
+    if (walletSettingsStatus) {
+      walletSettingsStatus.textContent = `Error: ${err.message}`;
+    }
+    if (walletTestModeToggle) {
+      walletTestModeToggle.checked = !enable;
+    }
+  } finally {
+    walletTestModeTogglePending = false;
+    if (walletTestModeToggle) {
+      walletTestModeToggle.disabled = false;
+    }
+    if (walletTestModeWarningConfirm) {
+      walletTestModeWarningConfirm.disabled = false;
+    }
+  }
+}
+
 if (walletTestModeToggle) {
   walletTestModeToggle.addEventListener("change", async () => {
     const enable = walletTestModeToggle.checked;
-    try {
-      const result = await fetchJson("/api/wallet/testmode", { method: "POST", body: JSON.stringify({ enabled: enable }) });
-      walletState.testMode = result.testMode;
-      // Reset wallet UI state since we're switching contexts
-      walletState.walletConfigured = false;
-      walletState.address = null;
-      walletState.mnemonic = null;
-      walletState.balance = null;
-      walletState.qrLoaded = false;
-      walletState.history = [];
-      renderWalletHistory();
-      applyTestMode();
-      applyWalletConfiguredState();
-      // Reload state for the newly active mode
-      loadWalletState();
-    } catch (err) {
-      walletSettingsStatus.textContent = `Error: ${err.message}`;
-      walletTestModeToggle.checked = !enable;
+    if (!enable) {
+      openWalletTestModeWarningModal();
+      return;
     }
+    closeWalletTestModeWarningModal();
+    await saveWalletTestMode(enable);
   });
 }
 
@@ -5580,6 +5708,21 @@ modelManagerClose.addEventListener("click", closeModelManager);
 aiSettingsClose.addEventListener("click", closeAiSettingsModal);
 helpModalClose.addEventListener("click", closeHelpModal);
 walletModalClose.addEventListener("click", closeWalletModal);
+if (walletTestModeWarningClose) {
+  walletTestModeWarningClose.addEventListener("click", () => {
+    cancelWalletTestModeWarning();
+  });
+}
+if (walletTestModeWarningCancel) {
+  walletTestModeWarningCancel.addEventListener("click", () => {
+    cancelWalletTestModeWarning();
+  });
+}
+if (walletTestModeWarningConfirm) {
+  walletTestModeWarningConfirm.addEventListener("click", async () => {
+    await saveWalletTestMode(false);
+  });
+}
 deviceStatus.addEventListener("click", () => {
   if (latestMeshtasticConnected) openDeviceMetaModal();
 });
@@ -5595,6 +5738,13 @@ deviceMetaModal.addEventListener("click", (event) => {
     closeDeviceMetaModal();
   }
 });
+if (walletTestModeWarningModal) {
+  walletTestModeWarningModal.addEventListener("click", (event) => {
+    if (event.target.hasAttribute("data-close-wallet-testmode-warning")) {
+      cancelWalletTestModeWarning();
+    }
+  });
+}
 if (chatChannelModalClose) {
   chatChannelModalClose.addEventListener("click", closeChatChannelModal);
 }
@@ -5706,6 +5856,10 @@ document.addEventListener("keydown", (event) => {
   handleWalletModalFocusTrap(event);
   if (event.key === "Escape" && chatChannelModal && !chatChannelModal.classList.contains("hidden")) {
     closeChatChannelModal();
+    return;
+  }
+  if (event.key === "Escape" && walletTestModeWarningModal && !walletTestModeWarningModal.classList.contains("hidden")) {
+    cancelWalletTestModeWarning();
     return;
   }
   if (event.key === "Escape" && !walletModal.classList.contains("hidden")) {

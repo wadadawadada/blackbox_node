@@ -3278,6 +3278,29 @@ textarea,
   border-color: #3a4a52;
 }
 
+.wallet-warning-modal-panel {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(72vh, 360px);
+}
+
+.wallet-warning-copy {
+  display: grid;
+  gap: 10px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+
+.wallet-warning-copy p {
+  margin: 0;
+}
+
+.wallet-warning-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .wallet-testmode-row {
   display: flex;
   align-items: center;

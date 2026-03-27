@@ -3,6 +3,17 @@ const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
 const { spawnSync, spawn } = require("child_process");
+const { webcrypto } = require("crypto");
+
+// cashu-ts expects Web Crypto APIs on globalThis.
+// Older Node runtimes may not expose them there by default.
+if ((!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== "function") && webcrypto) {
+  Object.defineProperty(globalThis, "crypto", {
+    value: webcrypto,
+    configurable: true,
+    writable: true,
+  });
+}
 
 const HOST = "127.0.0.1";
 const DEFAULT_PORT = 7860;
@@ -399,7 +410,7 @@ function persistSettings() {
 // ─── Wallet ──────────────────────────────────────────────────────────────────
 
 function isTestMode() {
-  return Boolean(appSettings.walletTestMode);
+  return typeof appSettings.walletTestMode === "boolean" ? appSettings.walletTestMode : true;
 }
 
 function isMeshAiReplyEnabled() {
@@ -783,22 +794,31 @@ function addCashuHistory(entry) {
   if (cd.history.length > 100) cd.history = cd.history.slice(0, 100);
 }
 
+// cashu-ts v3.x is ESM-only via @scure/base v2; use dynamic import() to load it in CommonJS
+let _cashuModulePromise = null;
+function getCashuModule() {
+  if (!_cashuModulePromise) {
+    _cashuModulePromise = import("@cashu/cashu-ts");
+  }
+  return _cashuModulePromise;
+}
+
 // Cache wallet instances per mintUrl to avoid hitting /keys on every call
 const _cashuWalletCache = new Map();
 function _cashuWalletCacheKey() {
   return `${isTestMode() ? "test" : "prod"}:${getActiveCashuData().mintUrl}`;
 }
 async function cashuGetWallet() {
-  const { CashuMint, CashuWallet } = require("@cashu/cashu-ts");
+  const { Wallet } = await getCashuModule();
   const cd = getActiveCashuData();
   if (!cd.mintUrl) throw new Error("No mint configured");
   const key = _cashuWalletCacheKey();
   if (_cashuWalletCache.has(key)) {
     return _cashuWalletCache.get(key);
   }
-  const mint = new CashuMint(cd.mintUrl);
-  const wallet = new CashuWallet(mint);
-  const result = { wallet, mint };
+  const wallet = new Wallet(cd.mintUrl, { unit: "sat" });
+  await wallet.loadMint(true);
+  const result = { wallet };
   _cashuWalletCache.set(key, result);
   return result;
 }
@@ -807,10 +827,16 @@ async function cashuPruneSpentProofs() {
   const cd = getActiveCashuData();
   if (!cd.mintUrl || !(cd.proofs || []).length) return { removedCount: 0, removedAmount: 0 };
   const { wallet } = await cashuGetWallet();
-  const spentProofs = await wallet.checkProofsSpent(cd.proofs);
-  if (!spentProofs.length) return { removedCount: 0, removedAmount: 0 };
+  const states = await wallet.checkProofsStates(cd.proofs);
+  const spentSecrets = new Set(
+    states
+      .filter((s) => String(s?.state || "").toUpperCase() === "SPENT")
+      .map((s) => String(s?.secret || ""))
+      .filter(Boolean)
+  );
+  if (!spentSecrets.size) return { removedCount: 0, removedAmount: 0 };
 
-  const spentSecrets = new Set(spentProofs.map((p) => p.secret));
+  const spentProofs = cd.proofs.filter((p) => spentSecrets.has(p.secret));
   cd.proofs = cd.proofs.filter((p) => !spentSecrets.has(p.secret));
   const removedAmount = spentProofs.reduce((sum, p) => sum + (p.amount || 0), 0);
   addCashuHistory({
@@ -828,8 +854,8 @@ function cashuInvalidateWalletCache() {
 }
 
 async function cashuSetMint(mintUrl) {
-  const { CashuMint } = require("@cashu/cashu-ts");
-  const mint = new CashuMint(mintUrl.trim());
+  const { Mint } = await getCashuModule();
+  const mint = new Mint(mintUrl.trim());
   const info = await mint.getInfo();
   const cd = getActiveCashuData();
   cd.mintUrl = mintUrl.trim();
@@ -842,7 +868,9 @@ async function cashuSetMint(mintUrl) {
 
 async function cashuCreateInvoice(amount) {
   const { wallet } = await cashuGetWallet();
-  const { pr, hash } = await wallet.requestMint(amount);
+  const mintQuote = await wallet.createMintQuote(amount);
+  const pr = String(mintQuote.request || "");
+  const hash = String(mintQuote.quote || "");
   const cd = getActiveCashuData();
 
   const invoiceNet = detectInvoiceNetwork(pr);
@@ -872,7 +900,12 @@ async function cashuCheckInvoice(hash) {
   const cd = getActiveCashuData();
   const pending = (cd.pendingInvoices || []).find((i) => i.hash === hash);
   if (!pending) throw new Error("Invoice not found");
-  const { proofs } = await wallet.requestTokens(pending.amount, hash);
+  const quoteStatus = await wallet.checkMintQuote(hash);
+  const quoteState = String(quoteStatus?.state || "").toUpperCase();
+  if (quoteState !== "PAID" && quoteState !== "ISSUED") {
+    throw new Error("Invoice not yet paid");
+  }
+  const proofs = await wallet.mintProofs(pending.amount, hash);
   cd.proofs = [...(cd.proofs || []), ...proofs];
   cd.pendingInvoices = (cd.pendingInvoices || []).filter((i) => i.hash !== hash);
   addCashuHistory({ direction: "Received", amount: pending.amount, unit: "sats", peer: "Lightning deposit", status: "Confirmed" });
@@ -902,7 +935,7 @@ function selectProofsExact(amount, proofs) {
 }
 
 async function cashuSendToken(amount) {
-  const { getEncodedToken } = require("@cashu/cashu-ts");
+  const { getEncodedToken } = await getCashuModule();
   const cd = getActiveCashuData();
 
   // Best-effort: skip if mint is unreachable (offline mode).
@@ -921,29 +954,135 @@ async function cashuSendToken(amount) {
       cd.receivedSecrets = cd.receivedSecrets.filter((s) => !sentSecrets.has(s));
     }
     persistActiveCashu();
-    const token = getEncodedToken({ token: [{ mint: cd.mintUrl, proofs: offline.send }] });
+    const token = getEncodedToken({ mint: cd.mintUrl, proofs: offline.send });
     return { token, amount };
   }
 
   // Exact change not possible — need mint to split proofs (requires internet).
   const { wallet } = await cashuGetWallet();
-  const { send, returnChange } = await wallet.send(amount, cd.proofs);
-  cd.proofs = returnChange || [];
+  const sendResult = await wallet.send(amount, cd.proofs);
+  const send = Array.isArray(sendResult?.send) ? sendResult.send : [];
+  const keep = Array.isArray(sendResult?.keep) ? sendResult.keep : [];
+  if (!send.length) {
+    throw new Error("Mint returned empty token payload.");
+  }
+  cd.proofs = keep;
   // Same: remove sent secrets so sender can reclaim if needed.
   if (cd.receivedSecrets) {
     const sentSecrets = new Set(send.map((p) => p.secret));
     cd.receivedSecrets = cd.receivedSecrets.filter((s) => !sentSecrets.has(s));
   }
   persistActiveCashu();
-  const token = getEncodedToken({ token: [{ mint: cd.mintUrl, proofs: send }] });
+  const token = getEncodedToken({ mint: cd.mintUrl, proofs: send });
   return { token, amount };
 }
 
+function normalizeIncomingCashuTokenInput(rawInput) {
+  const text = String(rawInput || "").trim();
+  if (!text) return "";
+
+  const sanitize = (candidate) => String(candidate || "")
+    .replace(/\s+/g, "")
+    .replace(/^[`'"]+|[`'"]+$/g, "")
+    .replace(/[),.;:!?]+$/g, "")
+    .trim();
+
+  const direct = /(?:\[\d+\s*sats?\]\s*)?(cashu[AB][^\s]+)/i.exec(text);
+  if (direct?.[1]) return sanitize(direct[1]);
+
+  const joinedFragments = text
+    .split(/\r?\n+/)
+    .map((line) => String(line || "").replace(/^\s*\[\d+\/\d+\]\s*/g, "").trim())
+    .filter(Boolean)
+    .join("");
+  const fromFragments = /(?:\[\d+\s*sats?\]\s*)?(cashu[AB][^\s]+)/i.exec(joinedFragments);
+  if (fromFragments?.[1]) return sanitize(fromFragments[1]);
+
+  const compact = text.replace(/\s+/g, "");
+  const fromCompact = /(cashu[AB][A-Za-z0-9_\-+=/]+)/i.exec(compact);
+  if (fromCompact?.[1]) return sanitize(fromCompact[1]);
+
+  return sanitize(text);
+}
+
+function decodeTokenToMintAndProofs(decoded) {
+  if (decoded && typeof decoded === "object") {
+    const normalizedUnit = String(decoded.unit || "").trim() || "sat";
+    if (typeof decoded.mint === "string" && Array.isArray(decoded.proofs)) {
+      return {
+        mintUrl: decoded.mint,
+        proofs: decoded.proofs,
+        unit: normalizedUnit,
+        receiveToken: {
+          mint: decoded.mint,
+          proofs: decoded.proofs,
+          unit: normalizedUnit,
+          ...(decoded.memo ? { memo: decoded.memo } : {}),
+        },
+      };
+    }
+    if (Array.isArray(decoded.token) && decoded.token.length) {
+      const mintUrl = String(decoded.token[0]?.mint || "").trim();
+      const proofs = decoded.token.flatMap((entry) => (Array.isArray(entry?.proofs) ? entry.proofs : []));
+      const nestedUnit = String(decoded.token[0]?.unit || decoded.unit || "").trim() || "sat";
+      return {
+        mintUrl,
+        proofs,
+        unit: nestedUnit,
+        receiveToken: {
+          mint: mintUrl,
+          proofs,
+          unit: nestedUnit,
+          ...(decoded.memo ? { memo: decoded.memo } : {}),
+        },
+      };
+    }
+  }
+  return {
+    mintUrl: "",
+    proofs: [],
+    unit: "sat",
+    receiveToken: { mint: "", proofs: [], unit: "sat" },
+  };
+}
+
+function extractFreshProofsFromReceiveResult(receiveResult) {
+  if (Array.isArray(receiveResult)) return receiveResult;
+  // cashu-ts v2+: { keep: [...], send: [...] }
+  if (Array.isArray(receiveResult?.keep)) return receiveResult.keep;
+  if (Array.isArray(receiveResult?.proofs)) return receiveResult.proofs;
+  // cashu-ts v0.9.x: { token: [{ mint, proofs }] } — token is an array, not nested object
+  if (Array.isArray(receiveResult?.token)) {
+    return receiveResult.token.flatMap((entry) => (Array.isArray(entry?.proofs) ? entry.proofs : []));
+  }
+  // Legacy nested format: { token: { token: [{ proofs }] } }
+  const entries = receiveResult?.token?.token;
+  if (!Array.isArray(entries)) return [];
+  return entries.flatMap((entry) => (Array.isArray(entry?.proofs) ? entry.proofs : []));
+}
+
+function receiveResultHasErrors(receiveResult) {
+  const err = receiveResult?.tokensWithErrors;
+  if (!err) return false;
+  if (Array.isArray(err)) return err.length > 0;
+  if (Array.isArray(err.token)) return err.token.length > 0;
+  return false;
+}
+
 async function cashuReceiveToken(tokenString) {
-  const { getDecodedToken, CashuMint, CashuWallet } = require("@cashu/cashu-ts");
-  const decoded = getDecodedToken(tokenString.trim());
-  const tokenMintUrl = decoded.token[0].mint;
-  const incomingProofs = decoded.token.flatMap((e) => e.proofs);
+  const { getDecodedToken, Wallet } = await getCashuModule();
+  const normalizedToken = normalizeIncomingCashuTokenInput(tokenString);
+  const decoded = getDecodedToken(normalizedToken);
+  const parsed = decodeTokenToMintAndProofs(decoded);
+  const tokenMintUrl = String(parsed.mintUrl || "").trim();
+  const incomingProofs = Array.isArray(parsed.proofs) ? parsed.proofs : [];
+  const tokenUnit = String(parsed.unit || "sat").trim() || "sat";
+  const receiveToken = (parsed.receiveToken && typeof parsed.receiveToken === "object")
+    ? parsed.receiveToken
+    : { mint: tokenMintUrl, proofs: incomingProofs, unit: tokenUnit };
+  if (!tokenMintUrl || !incomingProofs.length) {
+    throw new Error("Token is invalid or contains no proofs.");
+  }
 
   // Deduplication: reject if any proof secret was already received (prevents double-redeem).
   const cd = getActiveCashuData();
@@ -959,17 +1098,20 @@ async function cashuReceiveToken(tokenString) {
     if (cd.receivedSecrets.length > 2000) cd.receivedSecrets = cd.receivedSecrets.slice(-2000);
   }
 
+  function isSpentLikeError(errorMessage) {
+    const msg = String(errorMessage || "").toLowerCase();
+    return msg.includes("spent") || msg.includes("redeem") || msg.includes("already used");
+  }
+
   // Try online receive (swaps proofs at mint for fresh ones, validates against double-spend).
   try {
-    const mint = new CashuMint(tokenMintUrl);
-    const wallet = new CashuWallet(mint);
-    await wallet.initKeys();
-    const receiveResult = await wallet.receive(decoded);
-    const receiveErrors = receiveResult.tokensWithErrors?.token || [];
-    if (receiveErrors.length || !receiveResult.token?.token?.length) {
+    const wallet = new Wallet(tokenMintUrl, { unit: tokenUnit });
+    await wallet.loadMint(true);
+    const receiveResult = await wallet.receive(receiveToken);
+    if (receiveResultHasErrors(receiveResult)) {
       throw new Error("Token was already spent or could not be reissued by the mint");
     }
-    const newProofs = receiveResult.token.token.flatMap((entry) => entry.proofs);
+    const newProofs = extractFreshProofsFromReceiveResult(receiveResult);
     const amount = newProofs.reduce((s, p) => s + (p.amount || 0), 0);
     if (!amount || !newProofs.length) {
       throw new Error("Token was already spent or returned no fresh proofs");
@@ -981,16 +1123,30 @@ async function cashuReceiveToken(tokenString) {
     persistActiveCashu();
     return { amount, balance: getCashuBalance(), mintUrl: tokenMintUrl };
   } catch (onlineErr) {
+    if (isSpentLikeError(onlineErr?.message || onlineErr)) {
+      throw new Error("Token already redeemed or spent at mint.");
+    }
+
     // Offline fallback: accept the raw proofs without mint verification.
     // The proofs are stored as-is and should be swapped at mint when connectivity returns.
     // Risk: sender could double-spend the same token; acceptable for trusted mesh peers.
     console.warn("[cashu] Online receive failed, accepting proofs offline:", onlineErr.message);
     if (!incomingProofs.length) throw new Error("Token contains no proofs");
-    const amount = incomingProofs.reduce((s, p) => s + (p.amount || 0), 0);
+    const walletSecrets = new Set((cd.proofs || []).map((p) => p?.secret).filter(Boolean));
+    const pendingSecrets = new Set((cd.pendingSwapProofs || []).map((p) => p?.secret).filter(Boolean));
+    const uniquePendingProofs = incomingProofs.filter((proof) => {
+      const secret = String(proof?.secret || "").trim();
+      if (!secret) return false;
+      return !walletSecrets.has(secret) && !pendingSecrets.has(secret);
+    });
+    if (!uniquePendingProofs.length) {
+      throw new Error("Token is already pending confirmation");
+    }
+    const amount = uniquePendingProofs.reduce((s, p) => s + (p.amount || 0), 0);
     // Store separately so we know these need to be swapped at the mint later
-    cd.pendingSwapProofs = [...(cd.pendingSwapProofs || []), ...incomingProofs];
+    cd.pendingSwapProofs = [...(cd.pendingSwapProofs || []), ...uniquePendingProofs];
     if (!cd.mintUrl) cd.mintUrl = tokenMintUrl;
-    recordSecrets(incomingProofs);
+    recordSecrets(uniquePendingProofs);
     addCashuHistory({ direction: "Received", amount, unit: "sats", peer: "Cashu token (pending — will confirm when online)", status: "Pending", mintUrl: tokenMintUrl });
     persistActiveCashu();
     return { amount, balance: getCashuBalance(), pendingBalance: getCashuPendingBalance(), mintUrl: tokenMintUrl, unverified: true };
@@ -1005,21 +1161,97 @@ async function cashuSwapPending() {
   if (!pending.length) return { swapped: 0, pendingBalance: 0 };
   if (!cd.mintUrl) throw new Error("No mint configured");
 
-  const { CashuMint, CashuWallet, getEncodedToken } = require("@cashu/cashu-ts");
-  const mint = new CashuMint(cd.mintUrl);
-  const wallet = new CashuWallet(mint);
-  await wallet.initKeys();
+  const { Wallet } = await getCashuModule();
+  const wallet = new Wallet(cd.mintUrl, { unit: "sat" });
+  await wallet.loadMint(true);
 
   // Re-encode pending proofs as a token and receive them (= swap at mint)
-  const tokenObj = { token: [{ mint: cd.mintUrl, proofs: pending }] };
+  const tokenObj = { mint: cd.mintUrl, proofs: pending, unit: "sat" };
   const receiveResult = await wallet.receive(tokenObj);
-  const receiveErrors = receiveResult.tokensWithErrors?.token || [];
-  if (receiveErrors.length || !receiveResult.token?.token?.length) {
-    throw new Error("Pending proofs were already spent or could not be reissued by the mint");
-  }
-  const freshProofs = receiveResult.token.token.flatMap((e) => e.proofs);
-  const amount = freshProofs.reduce((s, p) => s + (p.amount || 0), 0);
+  const batchHasErrors = receiveResultHasErrors(receiveResult);
+  let freshProofs = extractFreshProofsFromReceiveResult(receiveResult);
 
+  // Some mints return partial failures for mixed pending sets. Salvage what can be
+  // reissued proof-by-proof. Never drop unresolved proofs to avoid silent loss.
+  if (batchHasErrors || freshProofs.length === 0) {
+    const recovered = [];
+    const droppedSpent = [];
+    const maybeSpent = [];
+    const unresolved = [];
+
+    function isSpentLikeError(errorMessage) {
+      const msg = String(errorMessage || "").toLowerCase();
+      return msg.includes("spent") || msg.includes("redeem") || msg.includes("already used");
+    }
+
+    for (const proof of pending) {
+      try {
+        const singleToken = { mint: cd.mintUrl, proofs: [proof], unit: "sat" };
+        const singleResult = await wallet.receive(singleToken);
+        if (receiveResultHasErrors(singleResult)) {
+          maybeSpent.push(proof);
+          continue;
+        }
+        const singleFresh = extractFreshProofsFromReceiveResult(singleResult);
+        if (!singleFresh.length) {
+          maybeSpent.push(proof);
+          continue;
+        }
+        recovered.push(...singleFresh);
+      } catch (err) {
+        if (isSpentLikeError(err?.message || err)) {
+          maybeSpent.push(proof);
+        } else {
+          unresolved.push(proof);
+        }
+      }
+    }
+
+    if (maybeSpent.length > 0) {
+      try {
+        const spentStates = await wallet.checkProofsStates(maybeSpent);
+        const spentSecrets = new Set(
+          spentStates
+            .filter((s) => String(s?.state || "").toUpperCase() === "SPENT")
+            .map((s) => String(s?.secret || ""))
+            .filter(Boolean)
+        );
+        for (const proof of maybeSpent) {
+          const secret = String(proof?.secret || "");
+          if (secret && spentSecrets.has(secret)) {
+            droppedSpent.push(proof);
+          } else {
+            unresolved.push(proof);
+          }
+        }
+      } catch {
+        unresolved.push(...maybeSpent);
+      }
+    }
+
+    const recoveredAmount = recovered.reduce((s, p) => s + (p.amount || 0), 0);
+    const droppedAmount = droppedSpent.reduce((s, p) => s + (p.amount || 0), 0);
+    cd.proofs = [...(cd.proofs || []), ...recovered];
+    cd.pendingSwapProofs = unresolved;
+
+    if (recoveredAmount > 0) {
+      addCashuHistory({ direction: "Confirmed", amount: recoveredAmount, unit: "sats", peer: "Pending proofs verified", status: "Confirmed" });
+    }
+    if (droppedAmount > 0) {
+      addCashuHistory({ direction: "Reconciled", amount: droppedAmount, unit: "sats", peer: "Spent pending proofs removed", status: "Cleaned" });
+    }
+    persistActiveCashu();
+
+    return {
+      swapped: recoveredAmount,
+      dropped: droppedAmount,
+      unresolved: unresolved.length,
+      balance: getCashuBalance(),
+      pendingBalance: getCashuPendingBalance(),
+    };
+  }
+
+  const amount = freshProofs.reduce((s, p) => s + (p.amount || 0), 0);
   cd.proofs = [...(cd.proofs || []), ...freshProofs];
   cd.pendingSwapProofs = [];
   addCashuHistory({ direction: "Confirmed", amount, unit: "sats", peer: "Pending proofs verified", status: "Confirmed" });
@@ -1044,7 +1276,6 @@ function getMintNetwork(mintUrl) {
 
 async function cashuMeltToLightning(pr) {
   const { wallet } = await cashuGetWallet();
-  const { getDecodedLnInvoice } = require("@cashu/cashu-ts");
   const cd = getActiveCashuData();
 
   await cashuPruneSpentProofs();
@@ -1059,19 +1290,22 @@ async function cashuMeltToLightning(pr) {
     throw new Error(`Network mismatch: invoice is for ${invoiceNet} but mint is on ${mintNet}. ${hint}`);
   }
 
-  const fee = await wallet.getFee(pr);
-  const decoded = getDecodedLnInvoice(pr);
-  const amount = Math.round(Number(decoded.sections.find((s) => s.name === "amount")?.value || 0) / 1000);
+  // createMeltQuote returns amount + fee_reserve directly — no need to decode the invoice
+  const meltQuote = await wallet.createMeltQuote(pr);
+  const amount = Number(meltQuote.amount || 0);
+  const fee = Number(meltQuote.fee_reserve || 0);
   const totalNeeded = amount + fee;
   if (getCashuBalance() < totalNeeded) throw new Error(`Need ${totalNeeded} sats (incl. ${fee} fee), have ${getCashuBalance()}`);
 
-  const { send, returnChange } = await wallet.send(totalNeeded, cd.proofs);
-  // Save returnChange immediately — if payLnInvoice throws, these proofs are not lost
-  cd.proofs = returnChange || [];
+  const sendResult = await wallet.send(totalNeeded, cd.proofs);
+  const send = Array.isArray(sendResult?.send) ? sendResult.send : [];
+  const keep = Array.isArray(sendResult?.keep) ? sendResult.keep : [];
+  // Save keep immediately — if meltTokens throws, these proofs are not lost
+  cd.proofs = keep;
   persistActiveCashu();
 
   try {
-    const result = await wallet.payLnInvoice(pr, send);
+    const result = await wallet.meltTokens(meltQuote, send);
     if (result.change?.length) {
       cd.proofs = [...cd.proofs, ...result.change];
     }
@@ -1162,9 +1396,15 @@ function createSwapId(prefix) {
 }
 
 function getInvoiceAmountFromBolt11(pr) {
-  const { getDecodedLnInvoice } = require("@cashu/cashu-ts");
-  const decoded = getDecodedLnInvoice(pr);
-  return Math.round(Number(decoded.sections.find((section) => section.name === "amount")?.value || 0) / 1000);
+  // Parse amount from bolt11 invoice prefix without depending on cashu-ts.
+  // Format: ln[bc|tbs|bcrt]{amount}{multiplier}1...
+  // Multipliers: m=milli-BTC(1e5 sat), u=micro-BTC(100 sat), n=nano-BTC(0.1 sat), p=pico-BTC(0.0001 sat)
+  const match = /^ln(?:bc|tbs|bcrt)(\d+)([munp]?)1/i.exec(String(pr || ""));
+  if (!match) return 0;
+  const value = Number(match[1]);
+  const mult = match[2].toLowerCase();
+  const satFactors = { "": 1e8, m: 1e5, u: 100, n: 0.1, p: 0.0001 };
+  return Math.round(value * (satFactors[mult] ?? 0));
 }
 
 async function startSubmarineSwap(amount) {
@@ -4258,18 +4498,25 @@ const server = http.createServer(async (req, res) => {
         persistActiveCashu();
         return sendJson(res, 200, result);
       } catch (e) {
+        console.error("[cashu/send] error:", String(e?.message || e));
         return sendJson(res, 400, { error: normalizeCashuError(e) });
       }
     }
 
     if (req.method === "POST" && req.url === "/api/cashu/receive") {
       const body = await readJson(req);
-      const token = String(body.token || "").trim();
+      const tokenRaw = String(body.token || "");
+      const token = normalizeIncomingCashuTokenInput(tokenRaw);
       if (!token) return sendJson(res, 400, { error: "token required" });
       try {
         const result = await withCashuLock(() => cashuReceiveToken(token));
         return sendJson(res, 200, result);
       } catch (e) {
+        console.error("[cashu/receive]", {
+          error: String(e?.message || e || "unknown error"),
+          tokenLength: token.length,
+          tokenPreview: token.slice(0, 24),
+        });
         return sendJson(res, 400, { error: normalizeCashuError(e) });
       }
     }

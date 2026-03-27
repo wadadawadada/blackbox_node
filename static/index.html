@@ -1075,6 +1075,26 @@
       </div>
     </section>
   </div>
+  <div id="walletTestModeWarningModal" class="modal-shell hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-wallet-testmode-warning></div>
+    <section class="modal-panel panel wallet-warning-modal-panel" role="dialog" aria-modal="true" aria-labelledby="walletTestModeWarningTitle">
+      <div class="panel-head modal-head">
+        <div>
+          <h2 id="walletTestModeWarningTitle">Disable Test Mode</h2>
+          <div class="chat-subtitle">Production funds warning</div>
+        </div>
+        <button id="walletTestModeWarningClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
+      </div>
+      <div class="wallet-warning-copy">
+        <p><strong>MESH &amp; CASH WALLET</strong> is still under development.</p>
+        <p>Using non-test funds may lead to irreversible loss of funds.</p>
+      </div>
+      <div class="wallet-warning-actions">
+        <button id="walletTestModeWarningCancel" type="button">Stay in Test Mode</button>
+        <button id="walletTestModeWarningConfirm" type="button" class="wallet-danger-btn">Disable Test Mode</button>
+      </div>
+    </section>
+  </div>
   <div id="chatChannelModal" class="modal-shell hidden" aria-hidden="true">
     <div class="modal-backdrop" data-close-chat-channel-modal></div>
     <section class="modal-panel panel chat-channel-modal-panel" role="dialog" aria-modal="true" aria-labelledby="chatChannelModalTitle">
