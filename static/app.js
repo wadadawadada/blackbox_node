@@ -137,6 +137,19 @@ const cashuPendingList = document.getElementById("cashuPendingList");
 const cashuSendNoMint = document.getElementById("cashuSendNoMint");
 const cashuSendContent = document.getElementById("cashuSendContent");
 const cashuSendAvailable = document.getElementById("cashuSendAvailable");
+const cashuChangeForm = document.getElementById("cashuChangeForm");
+const cashuChangeAmount = document.getElementById("cashuChangeAmount");
+const cashuChangePreset = document.getElementById("cashuChangePreset");
+const cashuCompactButton = document.getElementById("cashuCompactButton");
+const cashuChangeStatus = document.getElementById("cashuChangeStatus");
+const swapChangeAvailable = document.getElementById("swapChangeAvailable");
+const cashuSendInventoryEmpty = document.getElementById("cashuSendInventoryEmpty");
+const cashuSendSliderWrap = document.getElementById("cashuSendSliderWrap");
+const cashuSendSlider = document.getElementById("cashuSendSlider");
+const walletSendSubmitButton = document.getElementById("walletSendSubmitButton");
+const cashuReadyInventoryDetails = document.getElementById("cashuReadyInventoryDetails");
+const cashuReadyInventorySummary = document.getElementById("cashuReadyInventorySummary");
+const cashuReadyInventoryList = document.getElementById("cashuReadyInventoryList");
 const cashuSendTokenBlock = document.getElementById("cashuSendTokenBlock");
 const cashuSendTokenOutput = document.getElementById("cashuSendTokenOutput");
 const cashuCopyTokenButton = document.getElementById("cashuCopyTokenButton");
@@ -289,9 +302,23 @@ const cashuState = {
   configured: false,
   mintUrl: null,
   balance: 0,
+  generalBalance: 0,
+  offgridBalance: 0,
   pendingBalance: 0,
   pendingInvoices: [],
+  inventory: {
+    confirmed: [],
+    general: [],
+    offgrid: [],
+    pending: [],
+    confirmedProofCount: 0,
+    generalProofCount: 0,
+    offgridProofCount: 0,
+    pendingProofCount: 0,
+  },
   currentInvoiceHash: null,
+  sendOptions: [],
+  sendOptionIndex: 0,
 };
 
 // Tracks tokens already redeemed in this session so the button stays disabled
@@ -327,6 +354,29 @@ async function fetchJson(url, options = {}) {
     throw new Error(payload.error || `${response.status} ${response.statusText}`);
   }
   return payload;
+}
+
+if (cashuCompactButton) {
+  cashuCompactButton.addEventListener("click", async () => {
+    const submitBtn = cashuChangeForm?.querySelector("button[type=submit]");
+    if (cashuChangeStatus) cashuChangeStatus.textContent = "Compacting inventory via mint...";
+    cashuCompactButton.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const data = await fetchJson("/api/cashu/compact", { method: "POST" });
+      await loadCashuState();
+      if (cashuChangeStatus) {
+        cashuChangeStatus.textContent = data.compacted
+          ? `Inventory compacted${data.fee ? `, fee ${data.fee} sats` : ""}`
+          : "Inventory is already compact.";
+      }
+    } catch (e) {
+      if (cashuChangeStatus) cashuChangeStatus.textContent = e.message;
+    } finally {
+      cashuCompactButton.disabled = false;
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
 }
 
 const COPY_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
@@ -1905,16 +1955,149 @@ async function loadWalletState() {
 
 // Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ Cashu UI Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ
 
+function applyCashuPayloadData(data) {
+  const payload = data?.wallet || data;
+  if (!payload || typeof payload !== "object") return;
+  if (Object.hasOwn(payload, "configured")) cashuState.configured = Boolean(payload.configured);
+  if (Object.hasOwn(payload, "mintUrl")) cashuState.mintUrl = payload.mintUrl || null;
+  if (Object.hasOwn(payload, "balance")) cashuState.balance = Number(payload.balance || 0);
+  if (Object.hasOwn(payload, "generalBalance")) cashuState.generalBalance = Number(payload.generalBalance || 0);
+  if (Object.hasOwn(payload, "offgridBalance")) cashuState.offgridBalance = Number(payload.offgridBalance || 0);
+  if (Object.hasOwn(payload, "pendingBalance")) cashuState.pendingBalance = Number(payload.pendingBalance || 0);
+  if (Object.hasOwn(payload, "pendingInvoices")) cashuState.pendingInvoices = Array.isArray(payload.pendingInvoices) ? payload.pendingInvoices : [];
+  if (Object.hasOwn(payload, "inventory")) {
+    const inventory = payload.inventory || {};
+    cashuState.inventory = {
+      confirmed: Array.isArray(inventory.confirmed) ? inventory.confirmed : [],
+      general: Array.isArray(inventory.general) ? inventory.general : [],
+      offgrid: Array.isArray(inventory.offgrid) ? inventory.offgrid : [],
+      pending: Array.isArray(inventory.pending) ? inventory.pending : [],
+      confirmedProofCount: Number(inventory.confirmedProofCount || payload.proofCount || 0),
+      generalProofCount: Number(inventory.generalProofCount || 0),
+      offgridProofCount: Number(inventory.offgridProofCount || 0),
+      pendingProofCount: Number(inventory.pendingProofCount || 0),
+    };
+  }
+}
+
+function getCashuOffgridBuckets() {
+  return Array.isArray(cashuState.inventory?.offgrid) ? cashuState.inventory.offgrid : [];
+}
+
+function getExpandedCashuOffgridAmounts() {
+  const amounts = [];
+  getCashuOffgridBuckets().forEach((bucket) => {
+    const amount = Number(bucket.amount || 0);
+    const count = Number(bucket.count || 0);
+    for (let i = 0; i < count; i += 1) {
+      if (amount > 0) amounts.push(amount);
+    }
+  });
+  return amounts.sort((a, b) => a - b);
+}
+
+function buildCashuSendOptions() {
+  const proofs = getExpandedCashuOffgridAmounts();
+  const sums = new Map([[0, []]]);
+  for (const proofAmount of proofs) {
+    const snapshot = [...sums.entries()].sort((a, b) => a[0] - b[0]);
+    snapshot.forEach(([sum, parts]) => {
+      const nextSum = sum + proofAmount;
+      if (!sums.has(nextSum)) {
+        sums.set(nextSum, [...parts, proofAmount].sort((a, b) => a - b));
+      }
+    });
+  }
+  sums.delete(0);
+  return [...sums.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([amount, parts]) => {
+      const counts = new Map();
+      parts.forEach((part) => counts.set(part, (counts.get(part) || 0) + 1));
+      const entries = [...counts.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([partAmount, count]) => ({ amount: partAmount, count }));
+      return { amount, parts, entries };
+    });
+}
+
+function clampCashuSendOptionIndex() {
+  const options = buildCashuSendOptions();
+  cashuState.sendOptions = options;
+  if (!options.length) {
+    cashuState.sendOptionIndex = 0;
+    return options;
+  }
+  const maxIndex = options.length - 1;
+  cashuState.sendOptionIndex = Math.max(0, Math.min(Number(cashuState.sendOptionIndex || 0), maxIndex));
+  return options;
+}
+
+function renderCashuSendSelection() {
+  if (!walletAmountInput) return;
+  const options = clampCashuSendOptionIndex();
+  const current = options[cashuState.sendOptionIndex] || null;
+  walletAmountInput.value = current ? String(current.amount) : "";
+  if (walletSendSubmitButton) {
+    walletSendSubmitButton.textContent = current
+      ? `Send ${current.amount} sats off-grid`
+      : "Send off-grid";
+  }
+  if (cashuSendInventoryEmpty) cashuSendInventoryEmpty.hidden = options.length > 0;
+  if (cashuSendSliderWrap) cashuSendSliderWrap.hidden = options.length === 0;
+  if (cashuSendSlider) {
+    cashuSendSlider.disabled = options.length === 0;
+    cashuSendSlider.min = "0";
+    cashuSendSlider.max = String(Math.max(0, options.length - 1));
+    cashuSendSlider.value = String(Math.max(0, cashuState.sendOptionIndex || 0));
+  }
+}
+
+function renderCashuReadyInventory() {
+  if (!cashuReadyInventoryList) return;
+  const buckets = getCashuOffgridBuckets().slice().sort((a, b) => Number(a.amount || 0) - Number(b.amount || 0));
+  const totalReady = buckets.reduce((sum, bucket) => sum + Number(bucket.count || 0), 0);
+  if (cashuReadyInventorySummary) {
+    cashuReadyInventorySummary.textContent = buckets.length ? `${totalReady} ready` : "0 ready";
+  }
+  if (cashuReadyInventoryDetails && !buckets.length) cashuReadyInventoryDetails.open = false;
+  cashuReadyInventoryList.innerHTML = buckets.length ? "" : '<div class="wallet-hint">No ready off-grid amounts yet.</div>';
+  buckets.forEach((bucket) => {
+    const amount = Number(bucket.amount || 0);
+    const count = Number(bucket.count || 0);
+    const row = document.createElement("div");
+    row.className = "cashu-coin-row";
+    row.innerHTML = `
+      <div class="cashu-coin-main">
+        <span class="cashu-coin-amount">${formatSats(amount)}</span>
+        <span class="cashu-coin-meta">ready ${count}</span>
+      </div>
+      <div class="cashu-coin-total">total ${formatSats(bucket.total || (amount * count))}</div>
+      <div class="cashu-coin-actions">
+        <button type="button" class="wallet-inline-action cashu-coin-icon-button" data-cashu-prepare-more="${amount}" title="Prepare more ${amount} sats" aria-label="Prepare more ${amount} sats">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+        </button>
+        <button type="button" class="wallet-inline-action cashu-coin-icon-button" data-cashu-remove-one="${amount}" title="Remove one ${amount} sats from off-grid" aria-label="Remove one ${amount} sats from off-grid">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg>
+        </button>
+      </div>
+    `;
+    cashuReadyInventoryList.appendChild(row);
+  });
+}
+
 function applyCashuState() {
   const cfg = cashuState.configured;
+  const spendableLabel = `Spendable off-grid: ${formatSats(cashuState.offgridBalance)}`;
   // Send tab
   if (cashuSendNoMint) cashuSendNoMint.hidden = cfg;
   if (cashuSendContent) cashuSendContent.hidden = !cfg;
   // Home balances
   if (cashuBalanceValue) cashuBalanceValue.textContent = cfg ? formatSats(cashuState.balance) : "-";
-  if (cashuBalanceSub) cashuBalanceSub.textContent = cfg ? (cashuState.mintUrl || "") : "No mint configured - go to Fund";
-  if (cashuSendAvailable) cashuSendAvailable.textContent = formatSats(cashuState.balance);
+  if (cashuBalanceSub) cashuBalanceSub.textContent = cfg ? spendableLabel : "No mint configured - go to Settings";
+  if (cashuSendAvailable) cashuSendAvailable.textContent = formatSats(cashuState.offgridBalance);
   if (swapCashuAvailable) swapCashuAvailable.textContent = formatSats(cashuState.balance);
+  if (swapChangeAvailable) swapChangeAvailable.textContent = formatSats(cashuState.generalBalance);
   // Pending (offline) balance row
   if (cashuPendingRow) {
     const hasPending = cashuState.pendingBalance > 0;
@@ -1930,6 +2113,8 @@ function applyCashuState() {
     settingsMintUrlInput.value = cashuState.mintUrl;
   }
   renderCashuPending();
+  renderCashuSendSelection();
+  renderCashuReadyInventory();
 }
 
 function renderCashuPending() {
@@ -1951,11 +2136,7 @@ function renderCashuPending() {
 async function loadCashuState() {
   try {
     const data = await fetchJson("/api/cashu");
-    cashuState.configured = data.configured;
-    cashuState.mintUrl = data.mintUrl || null;
-    cashuState.balance = data.balance || 0;
-    cashuState.pendingBalance = data.pendingBalance || 0;
-    cashuState.pendingInvoices = data.pendingInvoices || [];
+    applyCashuPayloadData(data);
     // Merge blockchain history with cashu history
     if (data.history && data.history.length) {
       const existing = new Set(walletState.history.map((h) => h.id));
@@ -1979,9 +2160,7 @@ async function trySwapPending() {
   if (!cashuState.pendingBalance) return;
   try {
     const data = await fetchJson("/api/cashu/swap-pending", { method: "POST" });
-    cashuState.balance = data.balance;
-    cashuState.pendingBalance = data.pendingBalance || 0;
-    applyCashuState();
+    await loadCashuState();
     if (data.swapped > 0) {
       walletState.history.unshift({ id: `cashu-confirm-${Date.now()}`, direction: "Confirmed", peer: "Pending proofs", amount: data.swapped, unit: "sats", status: "Confirmed", timestamp: new Date().toLocaleString() });
       renderWalletHistory();
@@ -2021,6 +2200,72 @@ if (cashuSwapPendingBtn) {
     cashuSwapPendingBtn.disabled = true;
     await trySwapPending();
     cashuSwapPendingBtn.disabled = false;
+  });
+}
+
+if (cashuSendSlider) {
+  cashuSendSlider.addEventListener("input", () => {
+    cashuState.sendOptionIndex = Number(cashuSendSlider.value || 0);
+    renderCashuSendSelection();
+  });
+}
+
+if (cashuReadyInventoryList) {
+  cashuReadyInventoryList.addEventListener("click", async (event) => {
+    const prepareButton = event.target.closest("[data-cashu-prepare-more]");
+    if (prepareButton) {
+      if (cashuChangeAmount) {
+        cashuChangeAmount.value = String(prepareButton.getAttribute("data-cashu-prepare-more") || "");
+        cashuChangeAmount.focus();
+      }
+      return;
+    }
+    const removeButton = event.target.closest("[data-cashu-remove-one]");
+    if (!removeButton) return;
+    const amount = Number(removeButton.getAttribute("data-cashu-remove-one") || 0);
+    removeButton.disabled = true;
+    if (cashuChangeStatus) cashuChangeStatus.textContent = `Removing 1 x ${amount} sats from ready off-grid amounts...`;
+    try {
+      await fetchJson("/api/cashu/offgrid/remove", {
+        method: "POST",
+        body: JSON.stringify({ amount, count: 1 }),
+      });
+      await loadCashuState();
+      if (cashuChangeStatus) cashuChangeStatus.textContent = `Removed 1 x ${amount} sats from ready off-grid amounts.`;
+    } catch (e) {
+      if (cashuChangeStatus) cashuChangeStatus.textContent = e.message;
+    } finally {
+      removeButton.disabled = false;
+    }
+  });
+}
+
+if (cashuChangeForm) {
+  cashuChangeForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const amount = Number(cashuChangeAmount?.value || 0);
+    const submitBtn = cashuChangeForm.querySelector("button[type=submit]");
+    if (!amount || amount <= 0) {
+      if (cashuChangeStatus) cashuChangeStatus.textContent = "Enter amount.";
+      return;
+    }
+    if (cashuChangeStatus) cashuChangeStatus.textContent = "Preparing off-grid amount via mint...";
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const data = await fetchJson("/api/cashu/offgrid/prepare", {
+        method: "POST",
+        body: JSON.stringify({ amount }),
+      });
+      await loadCashuState();
+      if (cashuChangeStatus) {
+        cashuChangeStatus.textContent = `Prepared ${amount} sats for off-grid${data.fee ? `, fee ${data.fee} sats` : ""}`;
+      }
+      if (cashuChangeAmount) cashuChangeAmount.value = "";
+    } catch (e) {
+      if (cashuChangeStatus) cashuChangeStatus.textContent = e.message;
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
   });
 }
 
@@ -2101,8 +2346,8 @@ function setWalletView(viewName, options = {}) {
 function queueMeshSend() {
   const recipient = walletRecipientInput.value.trim();
   const amount = walletAmountInput.value.trim();
-  const unit = walletUnitSelect.value;
-  const transport = walletTransportSelect.value;
+  const unit = "sats";
+  const transport = "Meshtastic DM";
   const memo = walletMemoInput.value.trim();
 
   if (!recipient) {
@@ -5017,10 +5262,12 @@ walletPreferredUnitSelect.addEventListener("change", () => {
   renderWalletHomeActivity();
 });
 
-walletDefaultTransportSelect.addEventListener("change", () => {
-  walletState.settings.defaultTransport = walletDefaultTransportSelect.value;
-  walletTransportSelect.value = walletState.settings.defaultTransport;
-});
+if (walletDefaultTransportSelect) {
+  walletDefaultTransportSelect.addEventListener("change", () => {
+    walletState.settings.defaultTransport = walletDefaultTransportSelect.value;
+    if (walletTransportSelect) walletTransportSelect.value = walletState.settings.defaultTransport;
+  });
+}
 
 walletRefreshBalance.addEventListener("click", () => {
   loadWalletBalance();
@@ -5082,7 +5329,7 @@ cashuCheckInvoiceButton.addEventListener("click", async () => {
   cashuCheckStatus.textContent = "Checking...";
   try {
     const data = await fetchJson("/api/cashu/check", { method: "POST", body: JSON.stringify({ hash }) });
-    cashuState.balance = data.balance;
+    await loadCashuState();
     cashuCheckStatus.textContent = `Paid! +${data.amount} sats. Balance: ${data.balance} sats`;
     cashuInvoiceBlock.hidden = true;
     cashuState.currentInvoiceHash = null;
@@ -5109,7 +5356,7 @@ if (cashuPendingList) {
     btn.textContent = "...";
     try {
       const data = await fetchJson("/api/cashu/check", { method: "POST", body: JSON.stringify({ hash }) });
-      cashuState.balance = data.balance;
+      await loadCashuState();
       cashuState.pendingInvoices = cashuState.pendingInvoices.filter((i) => i.hash !== hash);
       renderCashuPending();
       applyCashuState();
@@ -5124,42 +5371,51 @@ if (cashuPendingList) {
 walletSendForm.removeEventListener("submit", null);
 walletSendForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const amount = Number(walletAmountInput.value);
+  const options = clampCashuSendOptionIndex();
+  const current = options[cashuState.sendOptionIndex] || null;
+  const amount = Number(current?.amount || 0);
   const recipient = walletRecipientInput.value.trim();
-  const transport = walletTransportSelect.value;
   const memo = walletMemoInput.value.trim();
   const submitBtn = walletSendForm.querySelector("button[type=submit]");
-  if (!amount || amount <= 0) { walletSendStatus.textContent = "Enter amount."; return; }
-  walletSendStatus.textContent = "Preparing token...";
+  if (!amount || amount <= 0 || !current) { walletSendStatus.textContent = "Choose a ready off-grid amount with the slider."; return; }
+  if (!recipient) { walletSendStatus.textContent = "Select recipient node."; return; }
+  walletSendStatus.textContent = "Preparing off-grid token...";
   if (submitBtn) submitBtn.disabled = true;
   try {
     const data = await fetchJson("/api/cashu/send", {
       method: "POST",
-      body: JSON.stringify({ amount, peer: recipient || "unknown", memo }),
+      body: JSON.stringify({ amount, selection: current.entries, peer: recipient, memo, exactOfflineOnly: true }),
     });
     const issuedToken = normalizeIncomingCashuTokenInput(data.token);
     if (!issuedToken) {
       throw new Error("Mint returned an empty token.");
     }
-    cashuState.balance = cashuState.balance - amount;
+    applyCashuPayloadData(data);
     applyCashuState();
-    walletSendStatus.textContent = `Token created: ${amount} sats`;
     cashuSendTokenOutput.textContent = issuedToken;
     cashuSendTokenBlock.hidden = false;
-    if (recipient && transport === "Meshtastic DM") {
-      try {
-        await fetchJson("/api/mesh/send", {
-          method: "POST",
-          body: JSON.stringify({ destinationId: recipient, text: `[${amount} sats] ${issuedToken}` }),
-        });
-        walletSendStatus.textContent = `Sent ${amount} sats to ${recipient} via mesh`;
-      } catch (meshErr) {
-        walletSendStatus.textContent = `Token ready, mesh send failed (${meshErr?.message || "unknown"}). Copy token and resend manually.`;
-      }
+    let historyStatus = "Sent via Meshtastic";
+    try {
+      await fetchJson("/api/mesh/send", {
+        method: "POST",
+        body: JSON.stringify({ destinationId: recipient, text: `[${amount} sats] ${issuedToken}` }),
+      });
+      walletSendStatus.textContent = `Sent ${amount} sats to ${recipient} via Meshtastic`;
+    } catch (meshErr) {
+      historyStatus = "Token created; mesh delivery failed";
+      walletSendStatus.textContent = `Token created, but Meshtastic delivery failed (${meshErr?.message || "unknown"}). Copy token and resend manually.`;
     }
-    walletAmountInput.value = "";
+    renderCashuSendSelection();
     walletMemoInput.value = "";
-    walletState.history.unshift({ id: `cashu-send-${Date.now()}`, direction: "Sent", peer: recipient || "manual", amount, unit: "sats", status: "Token created", timestamp: new Date().toLocaleString() });
+    walletState.history.unshift({
+      id: `cashu-send-${Date.now()}`,
+      direction: "Sent",
+      peer: recipient,
+      amount,
+      unit: "sats",
+      status: historyStatus,
+      timestamp: new Date().toLocaleString(),
+    });
     renderWalletHistory();
   } catch (e) {
     walletSendStatus.textContent = e.message;
@@ -5190,7 +5446,7 @@ cashuMeltForm.addEventListener("submit", async (event) => {
   if (submitBtn) submitBtn.disabled = true;
   try {
     const data = await fetchJson("/api/cashu/melt", { method: "POST", body: JSON.stringify({ pr }) });
-    cashuState.balance = data.balance;
+    await loadCashuState();
     cashuMeltStatus.textContent = data.isPaid ? `Paid ${data.amount} sats (fee: ${data.fee})` : "Payment failed";
     cashuMeltInput.value = "";
     applyCashuState();
@@ -5208,7 +5464,7 @@ cashuReceiveForm.addEventListener("submit", async (event) => {
   cashuReceiveStatus.textContent = "Redeeming...";
   try {
     const data = await fetchJson("/api/cashu/receive", { method: "POST", body: JSON.stringify({ token }) });
-    cashuState.balance = data.balance;
+    await loadCashuState();
     cashuReceiveStatus.textContent = data.unverified
       ? `Accepted ${data.amount} sats offline (unverified; redeem online to confirm)`
       : `Received ${data.amount} sats! Balance: ${data.balance} sats`;

@@ -407,9 +407,9 @@
             <div class="donate-row">
               <div class="donate-meta">
                 <div class="donate-chain">XMR</div>
-                <div class="donate-address">42SWAqWMKAiAHokhaGjBRUdcdQqvMk3rmBAnnUpPNGhridJKFAknqCQeYnixXhbPtyEHzxBmUkMxAjQtLSQbiVq57Pbvge5</div>
+                <div class="donate-address">44QwjAWN4wR8KNqALAfcnjSMhb1Yj7AKCVCBMJFuzr6N8WYW23cDQNd3RiSvMEX2dyUQ5z6pP8sJ2YcmJXS4SLkc24E5SJM</div>
               </div>
-              <button type="button" class="donate-copy-button" data-copy-address="42SWAqWMKAiAHokhaGjBRUdcdQqvMk3rmBAnnUpPNGhridJKFAknqCQeYnixXhbPtyEHzxBmUkMxAjQtLSQbiVq57Pbvge5" aria-label="Copy XMR address">
+              <button type="button" class="donate-copy-button" data-copy-address="44QwjAWN4wR8KNqALAfcnjSMhb1Yj7AKCVCBMJFuzr6N8WYW23cDQNd3RiSvMEX2dyUQ5z6pP8sJ2YcmJXS4SLkc24E5SJM" aria-label="Copy XMR address">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <rect x="9" y="9" width="10" height="10" rx="1.5"></rect>
                   <path d="M7 15H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v1"></path>
@@ -503,10 +503,12 @@
           <section id="walletPanelHome" class="wallet-view-panel is-active" aria-labelledby="walletHomeTitle">
             <div class="wallet-overview">
               <div class="wallet-balance-card">
-                <div class="wallet-balance-label">Cashu Balance (spendable off-grid)</div>
+                <div class="wallet-balance-label">Confirmed Cashu Balance</div>
                 <div class="wallet-balance-value-row">
                   <div id="cashuBalanceValue" class="wallet-balance-value">—</div>
-                  <button type="button" class="wallet-fund-shortcut" data-wallet-view="swap">Swap</button>
+                  <button id="walletRefreshBalance" type="button" class="wallet-icon-button" title="Refresh" aria-label="Refresh balances" hidden>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                  </button>
                 </div>
                 <div id="cashuPendingRow" class="wallet-balance-sub-row" hidden>
                   <span class="wallet-balance-sub" style="color:#f5a623">+<span id="cashuPendingValue">0</span> sats unconfirmed (offline)</span>
@@ -515,10 +517,8 @@
                   </button>
                 </div>
                 <div class="wallet-balance-sub-row">
-                  <span id="cashuBalanceSub" class="wallet-balance-sub">No mint set</span>
-                  <button id="walletRefreshBalance" type="button" class="wallet-icon-button" title="Refresh" aria-label="Refresh balances" hidden>
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-                  </button>
+                  <span id="cashuBalanceSub" class="wallet-balance-sub">Spendable off-grid: 0 sats</span>
+                  <button type="button" class="wallet-inline-action wallet-inline-action-compact" data-wallet-view="swap">Change</button>
                 </div>
               </div>
               <div class="wallet-balance-card wallet-balance-card-secondary">
@@ -556,6 +556,39 @@
           </section>
 
           <section id="walletPanelSwap" class="wallet-view-panel" hidden>
+
+            <div class="wallet-fund-card">
+              <div class="swap-card-header">
+                <div class="modal-label">Off-grid Change</div>
+                <button type="button" class="swap-info-btn" aria-label="Info" onclick="document.getElementById('swapChangeInfoPopup').hidden=!document.getElementById('swapChangeInfoPopup').hidden">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="7" cy="7" r="6.5" stroke="currentColor"/><rect x="6.3" y="6" width="1.4" height="4.5" rx="0.7" fill="currentColor"/><circle cx="7" cy="3.8" r="0.8" fill="currentColor"/></svg>
+                </button>
+              </div>
+              <div id="swapChangeInfoPopup" class="swap-info-popup" hidden>
+                Move confirmed balance into ready off-grid amounts here. Use Compact inventory to clear the current ready list and start again.
+              </div>
+              <div class="wallet-balance-pill" style="margin-bottom:8px">
+                <span>Available to prepare:</span> <strong id="swapChangeAvailable">0 sats</strong>
+              </div>
+              <form id="cashuChangeForm" class="wallet-form-grid">
+                <label class="wallet-field" for="cashuChangeAmount">
+                  <span>Prepare new off-grid amount (sats)</span>
+                  <input id="cashuChangeAmount" type="number" min="1" step="1" inputmode="decimal" placeholder="50">
+                </label>
+                <div class="wallet-form-actions wallet-field-wide">
+                  <button type="submit">Prepare</button>
+                  <button id="cashuCompactButton" type="button" class="wallet-inline-action">Compact inventory</button>
+                  <div id="cashuChangeStatus" class="device-status-text" role="status" aria-live="polite"></div>
+                </div>
+              </form>
+              <details id="cashuReadyInventoryDetails" class="cashu-inventory-panel" style="margin-top:10px">
+                <summary class="cashu-inventory-head">
+                  <span>Ready off-grid amounts</span>
+                  <span id="cashuReadyInventorySummary">0 ready</span>
+                </summary>
+                <div id="cashuReadyInventoryList" class="cashu-inventory-list"></div>
+              </details>
+            </div>
 
             <!-- Card A: Lightning → Cashu -->
             <div class="wallet-fund-card">
@@ -670,32 +703,32 @@
               <div id="cashuSendContent" hidden>
                 <div class="wallet-section-divider">Send off-grid</div>
                 <div class="wallet-balance-pill">
-                  <span>Available:</span> <strong id="cashuSendAvailable">0 sats</strong>
+                  <span>Spendable off-grid:</span> <strong id="cashuSendAvailable">0 sats</strong>
                 </div>
                 <form id="walletSendForm" class="wallet-form-grid">
-                  <label class="wallet-field" for="walletAmountInput">
-                    <span>Amount (sats)</span>
-                    <input id="walletAmountInput" type="number" min="1" step="1" inputmode="decimal" placeholder="1000">
-                  </label>
+                  <input id="walletAmountInput" type="hidden" value="">
                   <label class="wallet-field" for="walletRecipientInput">
                     <span>Recipient node</span>
                     <select id="walletRecipientInput">
                       <option value="">Select node</option>
                     </select>
                   </label>
-                  <label class="wallet-field" for="walletTransportSelect">
-                    <span>Transport</span>
-                    <select id="walletTransportSelect">
-                      <option value="Meshtastic DM">Meshtastic DM</option>
-                      <option value="Manual copy">Manual copy</option>
-                    </select>
-                  </label>
+                  <div class="wallet-field wallet-field-wide">
+                    <span>Select amount</span>
+                    <div id="cashuSendInventoryEmpty" class="wallet-hint" style="margin-top:8px" hidden>
+                      No off-grid amounts ready.
+                      <button type="button" class="wallet-hint-link" data-wallet-view="swap">Swap</button>
+                    </div>
+                    <div id="cashuSendSliderWrap" style="margin-top:8px">
+                      <input id="cashuSendSlider" type="range" min="0" max="0" step="1" value="0">
+                    </div>
+                  </div>
                   <label class="wallet-field wallet-field-wide" for="walletMemoInput">
                     <span>Memo</span>
                     <input id="walletMemoInput" type="text" placeholder="optional">
                   </label>
                   <div class="wallet-form-actions wallet-field-wide">
-                    <button type="submit">Create token &amp; send</button>
+                    <button id="walletSendSubmitButton" type="submit">Send off-grid</button>
                     <div id="walletSendStatus" class="device-status-text" role="status" aria-live="polite"></div>
                   </div>
                 </form>
@@ -948,8 +981,7 @@
                 <label class="wallet-field" for="walletDefaultTransportSelect">
                   <span>Transport</span>
                   <select id="walletDefaultTransportSelect">
-                    <option value="Meshtastic DM">Meshtastic DM</option>
-                    <option value="Gateway relay">Gateway relay</option>
+                    <option value="Meshtastic DM">Meshtastic DM (off-grid)</option>
                   </select>
                 </label>
               </div>

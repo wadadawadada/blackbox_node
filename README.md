@@ -310,7 +310,7 @@ On launch:
 - If Python is missing, the web UI and local AI still work, but Meshtastic and TAK transport features stay unavailable.
 - Automatic bootstrap currently targets Windows for `llama.cpp` runtime download.
 - Downloading models or auto-installing Python packages requires internet during `npm install`. Runtime is otherwise fully local.
-- Cashu token operations require internet access to reach the mint. Tokens already in your wallet can still be held and transferred offline.
+- Cashu token operations usually require internet access to reach the mint. Tokens already in your wallet can still be held and transferred offline, but creating a new send offline only works when your existing proofs already match the exact amount; otherwise the wallet must contact the mint to split/change proofs.
 - Current bridge support is strongest for **CoT XML / `ATAK_FORWARDER`** traffic. Raw `ATAK_PLUGIN` protobuf payloads are captured for debugging, but are not fully decoded by the bridge yet.
 
 ---
@@ -322,6 +322,6 @@ If this project is useful to you, consider supporting development:
 | Chain | Address |
 |---|---|
 | BTC | `bc1p3p87l267hte2dgg60jjt7w9xk8vfcjenr534yya0hedhet4l4fvq2x2svp` |
-| XMR | `42SWAqWMKAiAHokhaGjBRUdcdQqvMk3rmBAnnUpPNGhridJKFAknqCQeYnixXhbPtyEHzxBmUkMxAjQtLSQbiVq57Pbvge5` |
+| XMR | `44QwjAWN4wR8KNqALAfcnjSMhb1Yj7AKCVCBMJFuzr6N8WYW23cDQNd3RiSvMEX2dyUQ5z6pP8sJ2YcmJXS4SLkc24E5SJM` |
 | ETH | `0xaA01e4F453d5ae9903EebeABA803f3388D20d024` |
 | SOL | `4xgvfwv3TTt1SnavP5okbjBBsfRmoLpdeQKXguVdXheF` |

@@ -235,9 +235,9 @@ let messages = [];
 let knownNodes = {};
 let appSettings = {};
 let walletData = null;
-let cashuData = { mintUrl: "", proofs: [], pendingInvoices: [], history: [] };
+let cashuData = { mintUrl: "", proofs: [], pendingInvoices: [], pendingSwapProofs: [], receivedSecrets: [], offgridSecrets: [], offgridPackets: [], history: [] };
 let testWalletData = null;
-let testCashuData = { mintUrl: TEST_CASHU_DEFAULT_MINT, proofs: [], pendingInvoices: [], history: [] };
+let testCashuData = { mintUrl: TEST_CASHU_DEFAULT_MINT, proofs: [], pendingInvoices: [], pendingSwapProofs: [], receivedSecrets: [], offgridSecrets: [], offgridPackets: [], history: [] };
 let swaps = [];
 let meshtasticStatus = { connected: false, mode: "starting", error: null };
 let localMeshNodeId = null;
@@ -300,7 +300,10 @@ if (fs.existsSync(WALLET_FILE)) {
 if (fs.existsSync(CASHU_FILE)) {
   try {
     const loaded = JSON.parse(fs.readFileSync(CASHU_FILE, "utf8"));
-    cashuData = { mintUrl: "", proofs: [], pendingInvoices: [], history: [], ...loaded };
+    cashuData = { mintUrl: "", proofs: [], pendingInvoices: [], pendingSwapProofs: [], receivedSecrets: [], offgridSecrets: [], offgridPackets: [], history: [], ...loaded };
+    if (!Array.isArray(cashuData.offgridSecrets)) {
+      cashuData.offgridSecrets = (cashuData.proofs || []).map((proof) => String(proof?.secret || "")).filter(Boolean);
+    }
   } catch { /* keep defaults */ }
 }
 
@@ -315,7 +318,10 @@ if (fs.existsSync(TEST_WALLET_FILE)) {
 if (fs.existsSync(TEST_CASHU_FILE)) {
   try {
     const loaded = JSON.parse(fs.readFileSync(TEST_CASHU_FILE, "utf8"));
-    testCashuData = { mintUrl: TEST_CASHU_DEFAULT_MINT, proofs: [], pendingInvoices: [], history: [], ...loaded };
+    testCashuData = { mintUrl: TEST_CASHU_DEFAULT_MINT, proofs: [], pendingInvoices: [], pendingSwapProofs: [], receivedSecrets: [], offgridSecrets: [], offgridPackets: [], history: [], ...loaded };
+    if (!Array.isArray(testCashuData.offgridSecrets)) {
+      testCashuData.offgridSecrets = (testCashuData.proofs || []).map((proof) => String(proof?.secret || "")).filter(Boolean);
+    }
     // Always enforce signet mint for test mode — never allow mainnet mint in test mode
     if (!testCashuData.mintUrl || getMintNetwork(testCashuData.mintUrl) === "mainnet") {
       testCashuData.mintUrl = TEST_CASHU_DEFAULT_MINT;
@@ -760,20 +766,232 @@ function persistCashu() {
   fs.writeFileSync(CASHU_FILE, JSON.stringify(cashuData, null, 2), "utf8");
 }
 
+function getProofsBalance(proofs) {
+  return (Array.isArray(proofs) ? proofs : []).reduce((sum, p) => sum + (p.amount || 0), 0);
+}
+
 function getCashuBalance() {
-  return (getActiveCashuData().proofs || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+  return getProofsBalance(getActiveCashuData().proofs || []);
 }
 
 function getCashuPendingBalance() {
-  return (getActiveCashuData().pendingSwapProofs || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+  return getProofsBalance(getActiveCashuData().pendingSwapProofs || []);
+}
+
+function createCashuOffgridPacket(proofs, amountOverride = null) {
+  const secrets = [...new Set((Array.isArray(proofs) ? proofs : [])
+    .map((proof) => String(proof?.secret || "").trim())
+    .filter(Boolean))];
+  return {
+    id: `pkt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    amount: Math.max(0, Number(amountOverride ?? getProofsBalance(proofs)) || 0),
+    secrets,
+  };
+}
+
+function syncCashuOffgridState(cd = getActiveCashuData()) {
+  const proofMap = new Map();
+  for (const proof of Array.isArray(cd.proofs) ? cd.proofs : []) {
+    const secret = String(proof?.secret || "").trim();
+    if (secret) proofMap.set(secret, proof);
+  }
+
+  const normalizedPackets = [];
+  const assignedSecrets = new Set();
+  const hasPacketArray = Array.isArray(cd.offgridPackets);
+  const sourcePackets = hasPacketArray ? cd.offgridPackets : null;
+  const hasLegacySecrets = Array.isArray(cd.offgridSecrets) && cd.offgridSecrets.length > 0;
+
+  if (hasPacketArray && (sourcePackets.length > 0 || !hasLegacySecrets)) {
+    for (const packet of sourcePackets) {
+      const packetSecrets = [];
+      for (const rawSecret of Array.isArray(packet?.secrets) ? packet.secrets : []) {
+        const secret = String(rawSecret || "").trim();
+        if (!secret || assignedSecrets.has(secret) || !proofMap.has(secret)) continue;
+        assignedSecrets.add(secret);
+        packetSecrets.push(secret);
+      }
+      if (!packetSecrets.length) continue;
+      const amount = packetSecrets.reduce((sum, secret) => sum + Number(proofMap.get(secret)?.amount || 0), 0);
+      normalizedPackets.push({
+        id: String(packet?.id || createCashuOffgridPacket([], 0).id),
+        amount,
+        secrets: packetSecrets,
+      });
+    }
+  } else {
+    const legacySecrets = [...new Set((Array.isArray(cd.offgridSecrets) ? cd.offgridSecrets : [])
+      .map((secret) => String(secret || "").trim())
+      .filter(Boolean))];
+    for (const secret of legacySecrets) {
+      if (assignedSecrets.has(secret)) continue;
+      const proof = proofMap.get(secret);
+      if (!proof) continue;
+      assignedSecrets.add(secret);
+      normalizedPackets.push(createCashuOffgridPacket([proof]));
+    }
+  }
+
+  cd.offgridPackets = normalizedPackets;
+  cd.offgridSecrets = [...normalizedPackets.flatMap((packet) => packet.secrets)];
+  return { packets: cd.offgridPackets, secrets: cd.offgridSecrets };
+}
+
+function syncCashuOffgridSecrets(cd = getActiveCashuData()) {
+  return syncCashuOffgridState(cd).secrets;
+}
+
+function getCashuOffgridPackets(cd = getActiveCashuData()) {
+  return syncCashuOffgridState(cd).packets.map((packet) => ({
+    id: packet.id,
+    amount: Number(packet.amount || 0),
+    secrets: [...packet.secrets],
+  }));
+}
+
+function getCashuOffgridProofs(cd = getActiveCashuData()) {
+  const offgridSecrets = new Set(syncCashuOffgridSecrets(cd));
+  return (cd.proofs || []).filter((proof) => offgridSecrets.has(String(proof?.secret || "")));
+}
+
+function getCashuGeneralProofs(cd = getActiveCashuData()) {
+  const offgridSecrets = new Set(syncCashuOffgridSecrets(cd));
+  return (cd.proofs || []).filter((proof) => !offgridSecrets.has(String(proof?.secret || "")));
+}
+
+function getCashuOffgridBalance() {
+  return getCashuOffgridPackets().reduce((sum, packet) => sum + Number(packet.amount || 0), 0);
+}
+
+function getCashuGeneralBalance() {
+  return getProofsBalance(getCashuGeneralProofs());
+}
+
+function selectProofsByCounts(selection, proofs) {
+  const normalized = new Map();
+  for (const item of Array.isArray(selection) ? selection : []) {
+    const amount = Math.floor(Number(item?.amount || 0));
+    const count = Math.floor(Number(item?.count || 0));
+    if (!(amount > 0) || !(count > 0)) continue;
+    normalized.set(amount, (normalized.get(amount) || 0) + count);
+  }
+  if (!normalized.size) return null;
+
+  const buckets = new Map();
+  for (const proof of Array.isArray(proofs) ? proofs : []) {
+    const amount = Math.floor(Number(proof?.amount || 0));
+    if (!(amount > 0)) continue;
+    if (!buckets.has(amount)) buckets.set(amount, []);
+    buckets.get(amount).push(proof);
+  }
+
+  const send = [];
+  for (const [amount, count] of normalized.entries()) {
+    const bucket = buckets.get(amount) || [];
+    if (bucket.length < count) {
+      throw new Error(`Not enough ready ${amount} sats units.`);
+    }
+    for (let i = 0; i < count; i += 1) {
+      send.push(bucket.pop());
+    }
+  }
+
+  const sendSecrets = new Set(send.map((proof) => String(proof?.secret || "")).filter(Boolean));
+  const keep = (Array.isArray(proofs) ? proofs : []).filter((proof) => !sendSecrets.has(String(proof?.secret || "")));
+  return { send, returnChange: keep };
+}
+
+function selectOffgridPacketsByCounts(selection, packets) {
+  const normalized = new Map();
+  for (const item of Array.isArray(selection) ? selection : []) {
+    const amount = Math.floor(Number(item?.amount || 0));
+    const count = Math.floor(Number(item?.count || 0));
+    if (!(amount > 0) || !(count > 0)) continue;
+    normalized.set(amount, (normalized.get(amount) || 0) + count);
+  }
+  if (!normalized.size) return null;
+
+  const buckets = new Map();
+  for (const packet of Array.isArray(packets) ? packets : []) {
+    const amount = Math.floor(Number(packet?.amount || 0));
+    if (!(amount > 0)) continue;
+    if (!buckets.has(amount)) buckets.set(amount, []);
+    buckets.get(amount).push(packet);
+  }
+
+  const selectedPackets = [];
+  for (const [amount, count] of normalized.entries()) {
+    const bucket = buckets.get(amount) || [];
+    if (bucket.length < count) {
+      throw new Error(`Not enough ready ${amount} sats amounts.`);
+    }
+    for (let i = 0; i < count; i += 1) {
+      selectedPackets.push(bucket.pop());
+    }
+  }
+
+  const selectedIds = new Set(selectedPackets.map((packet) => String(packet?.id || "")).filter(Boolean));
+  const remainingPackets = (Array.isArray(packets) ? packets : []).filter((packet) => !selectedIds.has(String(packet?.id || "")));
+  return { selectedPackets, remainingPackets };
+}
+
+function groupCashuProofInventory(proofs, status = "confirmed") {
+  const buckets = new Map();
+  for (const proof of Array.isArray(proofs) ? proofs : []) {
+    const amount = Number(proof?.amount || 0);
+    if (!(amount > 0)) continue;
+    if (!buckets.has(amount)) {
+      buckets.set(amount, { amount, count: 0, total: 0, status });
+    }
+    const bucket = buckets.get(amount);
+    bucket.count += 1;
+    bucket.total += amount;
+  }
+  return [...buckets.values()].sort((a, b) => a.amount - b.amount);
+}
+
+function groupCashuPacketInventory(packets, status = "offgrid") {
+  const buckets = new Map();
+  for (const packet of Array.isArray(packets) ? packets : []) {
+    const amount = Number(packet?.amount || 0);
+    if (!(amount > 0)) continue;
+    if (!buckets.has(amount)) {
+      buckets.set(amount, { amount, count: 0, total: 0, status });
+    }
+    const bucket = buckets.get(amount);
+    bucket.count += 1;
+    bucket.total += amount;
+  }
+  return [...buckets.values()].sort((a, b) => a.amount - b.amount);
+}
+
+function getCashuInventoryPayload() {
+  const cd = getActiveCashuData();
+  const generalProofs = getCashuGeneralProofs(cd);
+  const offgridProofs = getCashuOffgridProofs(cd);
+  const offgridPackets = getCashuOffgridPackets(cd);
+  return {
+    confirmed: groupCashuProofInventory(cd.proofs || [], "confirmed"),
+    general: groupCashuProofInventory(generalProofs, "general"),
+    offgrid: groupCashuPacketInventory(offgridPackets, "offgrid"),
+    pending: groupCashuProofInventory(cd.pendingSwapProofs || [], "pending"),
+    confirmedProofCount: (cd.proofs || []).length,
+    generalProofCount: generalProofs.length,
+    offgridProofCount: offgridProofs.length,
+    offgridPacketCount: offgridPackets.length,
+    pendingProofCount: (cd.pendingSwapProofs || []).length,
+  };
 }
 
 function getCashuPayload() {
   const cd = getActiveCashuData();
+  syncCashuOffgridState(cd);
   return {
     configured: Boolean(cd.mintUrl),
     mintUrl: cd.mintUrl || null,
     balance: getCashuBalance(),
+    generalBalance: getCashuGeneralBalance(),
+    offgridBalance: getCashuOffgridBalance(),
     pendingBalance: getCashuPendingBalance(),
     proofCount: (cd.proofs || []).length,
     pendingInvoices: (cd.pendingInvoices || []).map((inv) => ({
@@ -782,6 +1000,7 @@ function getCashuPayload() {
       pr: inv.pr,
       createdAt: inv.createdAt,
     })),
+    inventory: getCashuInventoryPayload(),
     history: (cd.history || []).slice(0, 30),
     testMode: isTestMode(),
   };
@@ -838,6 +1057,7 @@ async function cashuPruneSpentProofs() {
 
   const spentProofs = cd.proofs.filter((p) => spentSecrets.has(p.secret));
   cd.proofs = cd.proofs.filter((p) => !spentSecrets.has(p.secret));
+  syncCashuOffgridState(cd);
   const removedAmount = spentProofs.reduce((sum, p) => sum + (p.amount || 0), 0);
   addCashuHistory({
     direction: "Reconciled",
@@ -861,6 +1081,10 @@ async function cashuSetMint(mintUrl) {
   cd.mintUrl = mintUrl.trim();
   cd.proofs = [];
   cd.pendingInvoices = [];
+  cd.pendingSwapProofs = [];
+  cd.receivedSecrets = [];
+  cd.offgridSecrets = [];
+  cd.offgridPackets = [];
   cashuInvalidateWalletCache();
   persistActiveCashu();
   return { ok: true, name: info.name, description: info.description, mintUrl: cd.mintUrl };
@@ -907,6 +1131,7 @@ async function cashuCheckInvoice(hash) {
   }
   const proofs = await wallet.mintProofs(pending.amount, hash);
   cd.proofs = [...(cd.proofs || []), ...proofs];
+  syncCashuOffgridState(cd);
   cd.pendingInvoices = (cd.pendingInvoices || []).filter((i) => i.hash !== hash);
   addCashuHistory({ direction: "Received", amount: pending.amount, unit: "sats", peer: "Lightning deposit", status: "Confirmed" });
   persistActiveCashu();
@@ -934,19 +1159,385 @@ function selectProofsExact(amount, proofs) {
   return { send, returnChange: keep };
 }
 
-async function cashuSendToken(amount) {
+function describeProofAmounts(proofs, limit = 12) {
+  const amounts = Array.isArray(proofs)
+    ? proofs
+      .map((proof) => Number(proof?.amount || 0))
+      .filter((amount) => amount > 0)
+      .sort((a, b) => b - a)
+    : [];
+  if (!amounts.length) return "none";
+  const shown = amounts.slice(0, limit).join(", ");
+  return amounts.length > limit ? `${shown}, ...` : shown;
+}
+
+function summarizeCashuInventory(proofs, limit = 8) {
+  const buckets = groupCashuProofInventory(proofs || []);
+  if (!buckets.length) return "none";
+  const shown = buckets
+    .slice(0, limit)
+    .map((bucket) => `${bucket.count}x${bucket.amount}`)
+    .join(", ");
+  return buckets.length > limit ? `${shown}, ...` : shown;
+}
+
+function isLikelyCashuNetworkError(error) {
+  const msg = String(error?.message || error || "").toLowerCase();
+  return [
+    "fetch failed",
+    "failed to fetch",
+    "network",
+    "socket",
+    "timeout",
+    "timed out",
+    "unreachable",
+    "enotfound",
+    "econnrefused",
+    "econnreset",
+    "getaddrinfo",
+  ].some((needle) => msg.includes(needle));
+}
+
+const CASHU_CHANGE_PRESETS = {
+  balanced: {
+    label: "Balanced",
+    maxDenomination: 256,
+  },
+  pocket: {
+    label: "Smaller proofs",
+    maxDenomination: 64,
+  },
+  wide: {
+    label: "Fewer proofs",
+    maxDenomination: 1024,
+  },
+};
+
+function normalizeCashuChangePreset(value) {
+  const key = String(value || "balanced").trim().toLowerCase();
+  return CASHU_CHANGE_PRESETS[key] ? key : "balanced";
+}
+
+function buildCashuChangeDenominations(amount, preset = "balanced") {
+  const normalizedAmount = Math.max(0, Number(amount) || 0);
+  if (!normalizedAmount) return [];
+  const config = CASHU_CHANGE_PRESETS[normalizeCashuChangePreset(preset)];
+  const maxDenomination = Math.max(1, Number(config.maxDenomination) || normalizedAmount);
+  const outputs = [];
+  let remaining = normalizedAmount;
+  let covered = 0;
+  const maxOutputs = 24;
+
+  while (remaining > 0 && outputs.length < maxOutputs) {
+    const nextCover = covered + 1;
+    const denom = Math.min(maxDenomination, nextCover, remaining);
+    outputs.push(denom);
+    covered += denom;
+    remaining -= denom;
+  }
+
+  if (remaining > 0) {
+    throw new Error("Requested change plan would create too many outputs. Try a smaller amount or a wider preset.");
+  }
+
+  return outputs.sort((a, b) => b - a);
+}
+
+function buildCashuCompactDenominations(amount) {
+  let remaining = Math.max(0, Math.floor(Number(amount) || 0));
+  const outputs = [];
+  while (remaining > 0) {
+    const denom = 2 ** Math.floor(Math.log2(remaining));
+    outputs.push(denom);
+    remaining -= denom;
+  }
+  return outputs.sort((a, b) => b - a);
+}
+
+async function cashuMakeChange(amount, preset = "balanced") {
+  const normalizedAmount = Math.floor(Number(amount) || 0);
+  const cd = getActiveCashuData();
+  if (!(normalizedAmount > 0)) throw new Error("amount required");
+  if (getCashuBalance() < normalizedAmount) throw new Error(`Insufficient balance (have ${getCashuBalance()} sats)`);
+
+  const plan = buildCashuChangeDenominations(normalizedAmount, preset);
+  if (!plan.length) throw new Error("Could not build a change plan");
+  if (plan.length < 2) {
+    throw new Error("Chosen amount does not need splitting. Pick a larger amount or a smaller preset.");
+  }
+
+  const beforeBalance = getCashuBalance();
+  const { wallet } = await cashuGetWallet();
+
+  let sendResult;
+  try {
+    sendResult = await wallet.send(normalizedAmount, cd.proofs, undefined, {
+      send: { type: "random", denominations: plan },
+    });
+  } catch (error) {
+    if (isLikelyCashuNetworkError(error)) {
+      throw new Error("Mint is unreachable. Reconnect internet to prepare off-grid change.");
+    }
+    throw error;
+  }
+
+  const send = Array.isArray(sendResult?.send) ? sendResult.send : [];
+  const keep = Array.isArray(sendResult?.keep) ? sendResult.keep : [];
+  if (!send.length) {
+    throw new Error("Mint returned empty change outputs.");
+  }
+
+  cd.proofs = [...keep, ...send];
+  cd.offgridSecrets = [];
+  cd.offgridPackets = [];
+  syncCashuOffgridState(cd);
+  persistActiveCashu();
+
+  const afterBalance = getCashuBalance();
+  const fee = Math.max(0, beforeBalance - afterBalance);
+  const presetKey = normalizeCashuChangePreset(preset);
+  addCashuHistory({
+    direction: "Rebalanced",
+    amount: normalizedAmount,
+    unit: "sats",
+    peer: CASHU_CHANGE_PRESETS[presetKey].label,
+    status: `Prepared ${send.length} proofs${fee ? ` (fee ${fee})` : ""}`,
+  });
+  persistActiveCashu();
+
+  return {
+    ok: true,
+    amount: normalizedAmount,
+    fee,
+    preset: presetKey,
+    proofsCreated: send.length,
+    proofAmounts: send.map((proof) => Number(proof?.amount || 0)).sort((a, b) => a - b),
+    balance: getCashuBalance(),
+    pendingBalance: getCashuPendingBalance(),
+    wallet: getCashuPayload(),
+  };
+}
+
+async function cashuPrepareOffgridAmount(amount) {
+  const normalizedAmount = Math.floor(Number(amount) || 0);
+  const cd = getActiveCashuData();
+  if (!(normalizedAmount > 0)) throw new Error("amount required");
+
+  const generalProofs = getCashuGeneralProofs(cd);
+  const generalBalance = getProofsBalance(generalProofs);
+  if (generalBalance < normalizedAmount) {
+    throw new Error(`Need ${normalizedAmount} sats available to prepare, have ${generalBalance} sats.`);
+  }
+
+  const beforeBalance = getCashuBalance();
+  const existingOffgridProofs = getCashuOffgridProofs(cd);
+  const existingOffgridPackets = getCashuOffgridPackets(cd);
+
+  const { wallet } = await cashuGetWallet();
+  let sendResult;
+  try {
+    sendResult = await wallet.send(normalizedAmount, generalProofs);
+  } catch (error) {
+    if (isLikelyCashuNetworkError(error)) {
+      throw new Error("Mint is unreachable. Reconnect internet to prepare a new off-grid amount.");
+    }
+    throw error;
+  }
+
+  const send = Array.isArray(sendResult?.send) ? sendResult.send : [];
+  const keep = Array.isArray(sendResult?.keep) ? sendResult.keep : [];
+  if (!send.length) {
+    throw new Error("Mint returned empty off-grid amount.");
+  }
+
+  cd.proofs = [...keep, ...existingOffgridProofs, ...send];
+  cd.offgridPackets = [...existingOffgridPackets, createCashuOffgridPacket(send, normalizedAmount)];
+  syncCashuOffgridState(cd);
+  persistActiveCashu();
+  const fee = Math.max(0, beforeBalance - getCashuBalance());
+
+  addCashuHistory({
+    direction: "Prepared",
+    amount: normalizedAmount,
+    unit: "sats",
+    peer: "Off-grid amount",
+    status: fee ? `Ready (fee ${fee})` : "Ready",
+  });
+  persistActiveCashu();
+
+  return {
+    ok: true,
+    amount: normalizedAmount,
+    proofsCreated: send.length,
+    fee,
+    wallet: getCashuPayload(),
+  };
+}
+
+async function cashuCompactInventory() {
+  const cd = getActiveCashuData();
+  const balance = getCashuBalance();
+  if (!(balance > 0)) throw new Error("No confirmed proofs to compact.");
+
+  const currentProofs = Array.isArray(cd.proofs) ? cd.proofs : [];
+  const currentPlan = currentProofs
+    .map((proof) => Number(proof?.amount || 0))
+    .filter((amount) => amount > 0)
+    .sort((a, b) => b - a);
+  const compactPlan = buildCashuCompactDenominations(balance);
+  const alreadyCompact =
+    currentPlan.length === compactPlan.length &&
+    currentPlan.every((amount, index) => amount === compactPlan[index]);
+
+  if (alreadyCompact) {
+    cd.offgridSecrets = [];
+    cd.offgridPackets = [];
+    persistActiveCashu();
+    return {
+      ok: true,
+      compacted: false,
+      amount: balance,
+      fee: 0,
+      proofsCreated: currentPlan.length,
+      proofAmounts: currentPlan.slice(),
+      balance,
+      pendingBalance: getCashuPendingBalance(),
+      wallet: getCashuPayload(),
+    };
+  }
+
+  const beforeBalance = balance;
+  const { wallet } = await cashuGetWallet();
+
+  let sendResult;
+  try {
+    sendResult = await wallet.send(balance, currentProofs, undefined, {
+      send: { type: "random", denominations: compactPlan },
+    });
+  } catch (error) {
+    if (isLikelyCashuNetworkError(error)) {
+      throw new Error("Mint is unreachable. Reconnect internet to compact proof inventory.");
+    }
+    throw error;
+  }
+
+  const send = Array.isArray(sendResult?.send) ? sendResult.send : [];
+  const keep = Array.isArray(sendResult?.keep) ? sendResult.keep : [];
+  if (!send.length) {
+    throw new Error("Mint returned empty compacted proofs.");
+  }
+
+  cd.proofs = [...keep, ...send];
+  cd.offgridSecrets = [];
+  cd.offgridPackets = [];
+  persistActiveCashu();
+
+  const afterBalance = getCashuBalance();
+  const fee = Math.max(0, beforeBalance - afterBalance);
+  addCashuHistory({
+    direction: "Rebalanced",
+    amount: beforeBalance,
+    unit: "sats",
+    peer: "Compact inventory",
+    status: `Compacted to ${send.length} proofs${fee ? ` (fee ${fee})` : ""}`,
+  });
+  persistActiveCashu();
+
+  return {
+    ok: true,
+    compacted: true,
+    amount: beforeBalance,
+    fee,
+    proofsCreated: send.length,
+    proofAmounts: send.map((proof) => Number(proof?.amount || 0)).sort((a, b) => b - a),
+    balance: getCashuBalance(),
+    pendingBalance: getCashuPendingBalance(),
+      wallet: getCashuPayload(),
+    };
+  }
+
+function cashuRemoveOffgridAmount(amount, count = 1) {
+  const normalizedAmount = Math.floor(Number(amount) || 0);
+  const normalizedCount = Math.floor(Number(count) || 0);
+  const cd = getActiveCashuData();
+  if (!(normalizedAmount > 0)) throw new Error("amount required");
+  if (!(normalizedCount > 0)) throw new Error("count required");
+
+  const offgridPackets = getCashuOffgridPackets(cd);
+  const selected = selectOffgridPacketsByCounts([{ amount: normalizedAmount, count: normalizedCount }], offgridPackets);
+  if (!selected?.selectedPackets?.length) {
+    throw new Error(`No ready ${normalizedAmount} sats units to remove.`);
+  }
+
+  cd.offgridPackets = selected.remainingPackets;
+  cd.offgridSecrets = [];
+  syncCashuOffgridState(cd);
+  persistActiveCashu();
+
+  addCashuHistory({
+    direction: "Rebalanced",
+    amount: normalizedAmount * normalizedCount,
+    unit: "sats",
+    peer: "Removed from off-grid",
+    status: normalizedCount > 1 ? `${normalizedCount} units returned` : "Returned",
+  });
+  persistActiveCashu();
+
+  return {
+    ok: true,
+    amount: normalizedAmount,
+    count: normalizedCount,
+    wallet: getCashuPayload(),
+  };
+}
+
+async function cashuSendToken(amount, options = {}) {
   const { getEncodedToken } = await getCashuModule();
   const cd = getActiveCashuData();
+  const exactOfflineOnly = Boolean(options.exactOfflineOnly);
+  const selection = Array.isArray(options.selection) ? options.selection : null;
 
   // Best-effort: skip if mint is unreachable (offline mode).
   try { await cashuPruneSpentProofs(); } catch (_) { /* no internet — continue offline */ }
-  if (getCashuBalance() < amount) throw new Error(`Insufficient balance (have ${getCashuBalance()} sats)`);
+  if (getCashuOffgridBalance() < amount) throw new Error(`Insufficient off-grid balance (have ${getCashuOffgridBalance()} sats)`);
+
+  if (selection?.length) {
+    const selected = selectOffgridPacketsByCounts(selection, getCashuOffgridPackets(cd));
+    if (!selected?.selectedPackets?.length) {
+      throw new Error("Selected off-grid amounts are no longer available.");
+    }
+    const selectedAmount = selected.selectedPackets.reduce((sum, packet) => sum + Number(packet.amount || 0), 0);
+    const sentSecrets = new Set(selected.selectedPackets.flatMap((packet) => packet.secrets));
+    const sendProofs = (cd.proofs || []).filter((proof) => sentSecrets.has(String(proof?.secret || "")));
+    cd.proofs = (cd.proofs || []).filter((proof) => !sentSecrets.has(String(proof?.secret || "")));
+    cd.offgridPackets = selected.remainingPackets;
+    cd.offgridSecrets = [];
+    syncCashuOffgridState(cd);
+    if (cd.receivedSecrets) {
+      cd.receivedSecrets = cd.receivedSecrets.filter((secret) => !sentSecrets.has(secret));
+    }
+    persistActiveCashu();
+    const token = getEncodedToken({ mint: cd.mintUrl, proofs: sendProofs });
+    return {
+      token,
+      amount: selectedAmount,
+      mode: "offline-exact",
+      proofAmounts: sendProofs.map((proof) => Number(proof?.amount || 0)).sort((a, b) => a - b),
+      balance: getCashuBalance(),
+      generalBalance: getCashuGeneralBalance(),
+      offgridBalance: getCashuOffgridBalance(),
+      pendingBalance: getCashuPendingBalance(),
+      wallet: getCashuPayload(),
+    };
+  }
 
   // Try offline-first: select proofs without contacting the mint.
   // Works when available denominations can exactly represent the amount.
-  const offline = selectProofsExact(amount, cd.proofs);
+  const offgridProofs = getCashuOffgridProofs(cd);
+  const offline = selectProofsExact(amount, offgridProofs);
   if (offline) {
-    cd.proofs = offline.returnChange;
+    cd.proofs = [...getCashuGeneralProofs(cd), ...offline.returnChange];
+    syncCashuOffgridState(cd);
     // Remove sent proof secrets from receivedSecrets so the sender can reclaim
     // the token if the recipient never redeems it.
     if (cd.receivedSecrets) {
@@ -955,18 +1546,50 @@ async function cashuSendToken(amount) {
     }
     persistActiveCashu();
     const token = getEncodedToken({ mint: cd.mintUrl, proofs: offline.send });
-    return { token, amount };
+    return {
+      token,
+      amount,
+      mode: "offline-exact",
+      proofAmounts: offline.send.map((proof) => Number(proof?.amount || 0)).sort((a, b) => a - b),
+      balance: getCashuBalance(),
+      generalBalance: getCashuGeneralBalance(),
+      offgridBalance: getCashuOffgridBalance(),
+      pendingBalance: getCashuPendingBalance(),
+      wallet: getCashuPayload(),
+    };
+  }
+
+  if (exactOfflineOnly) {
+    throw new Error(
+      `Off-grid send for ${amount} sats is not possible with current ready off-grid amounts. ` +
+      `Inventory: ${summarizeCashuInventory(offgridProofs)}. ` +
+      `Open Change and prepare the amount first.`,
+    );
   }
 
   // Exact change not possible — need mint to split proofs (requires internet).
   const { wallet } = await cashuGetWallet();
-  const sendResult = await wallet.send(amount, cd.proofs);
+  let sendResult;
+  try {
+    sendResult = await wallet.send(amount, offgridProofs);
+  } catch (error) {
+    if (isLikelyCashuNetworkError(error)) {
+      throw new Error(
+        `Offline send could not make exact change for ${amount} sats. ` +
+        `Current ready off-grid amounts: ${describeProofAmounts(offgridProofs)}. ` +
+        `Reconnect internet so the mint can split proofs, or send an amount that exactly matches your ready off-grid amounts.`,
+      );
+    }
+    throw error;
+  }
   const send = Array.isArray(sendResult?.send) ? sendResult.send : [];
   const keep = Array.isArray(sendResult?.keep) ? sendResult.keep : [];
   if (!send.length) {
     throw new Error("Mint returned empty token payload.");
   }
-  cd.proofs = keep;
+  cd.proofs = [...getCashuGeneralProofs(cd), ...keep];
+  cd.offgridPackets = [];
+  syncCashuOffgridState(cd);
   // Same: remove sent secrets so sender can reclaim if needed.
   if (cd.receivedSecrets) {
     const sentSecrets = new Set(send.map((p) => p.secret));
@@ -974,7 +1597,17 @@ async function cashuSendToken(amount) {
   }
   persistActiveCashu();
   const token = getEncodedToken({ mint: cd.mintUrl, proofs: send });
-  return { token, amount };
+  return {
+    token,
+    amount,
+    mode: "mint-split",
+    proofAmounts: send.map((proof) => Number(proof?.amount || 0)).sort((a, b) => a - b),
+    balance: getCashuBalance(),
+    generalBalance: getCashuGeneralBalance(),
+    offgridBalance: getCashuOffgridBalance(),
+    pendingBalance: getCashuPendingBalance(),
+    wallet: getCashuPayload(),
+  };
 }
 
 function normalizeIncomingCashuTokenInput(rawInput) {
@@ -1117,6 +1750,7 @@ async function cashuReceiveToken(tokenString) {
       throw new Error("Token was already spent or returned no fresh proofs");
     }
     cd.proofs = [...(cd.proofs || []), ...newProofs];
+    syncCashuOffgridState(cd);
     if (!cd.mintUrl) cd.mintUrl = tokenMintUrl;
     recordSecrets(incomingProofs);
     addCashuHistory({ direction: "Received", amount, unit: "sats", peer: "Cashu token", status: "Confirmed", mintUrl: tokenMintUrl });
@@ -1232,6 +1866,7 @@ async function cashuSwapPending() {
     const recoveredAmount = recovered.reduce((s, p) => s + (p.amount || 0), 0);
     const droppedAmount = droppedSpent.reduce((s, p) => s + (p.amount || 0), 0);
     cd.proofs = [...(cd.proofs || []), ...recovered];
+    syncCashuOffgridState(cd);
     cd.pendingSwapProofs = unresolved;
 
     if (recoveredAmount > 0) {
@@ -1253,6 +1888,7 @@ async function cashuSwapPending() {
 
   const amount = freshProofs.reduce((s, p) => s + (p.amount || 0), 0);
   cd.proofs = [...(cd.proofs || []), ...freshProofs];
+  syncCashuOffgridState(cd);
   cd.pendingSwapProofs = [];
   addCashuHistory({ direction: "Confirmed", amount, unit: "sats", peer: "Pending proofs verified", status: "Confirmed" });
   persistActiveCashu();
@@ -1302,12 +1938,14 @@ async function cashuMeltToLightning(pr) {
   const keep = Array.isArray(sendResult?.keep) ? sendResult.keep : [];
   // Save keep immediately — if meltTokens throws, these proofs are not lost
   cd.proofs = keep;
+  syncCashuOffgridState(cd);
   persistActiveCashu();
 
   try {
     const result = await wallet.meltTokens(meltQuote, send);
     if (result.change?.length) {
       cd.proofs = [...cd.proofs, ...result.change];
+      syncCashuOffgridState(cd);
     }
     addCashuHistory({ direction: "Sent", amount, unit: "sats", peer: "Lightning payment", status: result.isPaid ? "Confirmed" : "Failed" });
     persistActiveCashu();
@@ -4490,15 +5128,81 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && req.url === "/api/cashu/send") {
       const body = await readJson(req);
-      const amount = Number(body.amount);
+      const selection = Array.isArray(body.selection) ? body.selection : [];
+      const selectionAmount = selection.reduce((sum, item) => {
+        const amount = Math.floor(Number(item?.amount || 0));
+        const count = Math.floor(Number(item?.count || 0));
+        return sum + ((amount > 0 && count > 0) ? amount * count : 0);
+      }, 0);
+      const amount = Number(body.amount || selectionAmount);
       if (!amount || amount <= 0) return sendJson(res, 400, { error: "amount required" });
       try {
-        const result = await withCashuLock(() => cashuSendToken(amount));
-        addCashuHistory({ direction: "Sent", amount, unit: "sats", peer: body.peer || "Cashu token", status: "Token created" });
+        const result = await withCashuLock(() => cashuSendToken(amount, {
+          exactOfflineOnly: body.exactOfflineOnly,
+          selection,
+        }));
+        addCashuHistory({
+          direction: "Sent",
+          amount: result.amount || amount,
+          unit: "sats",
+          peer: body.peer || "Cashu token",
+          status: result.mode === "offline-exact" ? "Token created (off-grid)" : "Token created via mint split",
+        });
         persistActiveCashu();
         return sendJson(res, 200, result);
       } catch (e) {
         console.error("[cashu/send] error:", String(e?.message || e));
+        return sendJson(res, 400, { error: normalizeCashuError(e) });
+      }
+    }
+
+    if (req.method === "POST" && req.url === "/api/cashu/make-change") {
+      const body = await readJson(req);
+      const amount = Number(body.amount);
+      const preset = String(body.preset || "balanced");
+      if (!amount || amount <= 0) return sendJson(res, 400, { error: "amount required" });
+      try {
+        const result = await withCashuLock(() => cashuMakeChange(amount, preset));
+        return sendJson(res, 200, result);
+      } catch (e) {
+        console.error("[cashu/make-change] error:", String(e?.message || e));
+        return sendJson(res, 400, { error: normalizeCashuError(e) });
+      }
+    }
+
+    if (req.method === "POST" && req.url === "/api/cashu/offgrid/prepare") {
+      const body = await readJson(req);
+      const amount = Number(body.amount);
+      if (!amount || amount <= 0) return sendJson(res, 400, { error: "amount required" });
+      try {
+        const result = await withCashuLock(() => cashuPrepareOffgridAmount(amount));
+        return sendJson(res, 200, result);
+      } catch (e) {
+        console.error("[cashu/offgrid/prepare] error:", String(e?.message || e));
+        return sendJson(res, 400, { error: normalizeCashuError(e) });
+      }
+    }
+
+    if (req.method === "POST" && req.url === "/api/cashu/offgrid/remove") {
+      const body = await readJson(req);
+      const amount = Number(body.amount);
+      const count = Number(body.count || 1);
+      if (!amount || amount <= 0) return sendJson(res, 400, { error: "amount required" });
+      try {
+        const result = await withCashuLock(() => cashuRemoveOffgridAmount(amount, count));
+        return sendJson(res, 200, result);
+      } catch (e) {
+        console.error("[cashu/offgrid/remove] error:", String(e?.message || e));
+        return sendJson(res, 400, { error: normalizeCashuError(e) });
+      }
+    }
+
+    if (req.method === "POST" && req.url === "/api/cashu/compact") {
+      try {
+        const result = await withCashuLock(() => cashuCompactInventory());
+        return sendJson(res, 200, result);
+      } catch (e) {
+        console.error("[cashu/compact] error:", String(e?.message || e));
         return sendJson(res, 400, { error: normalizeCashuError(e) });
       }
     }
