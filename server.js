@@ -34,10 +34,15 @@ const MUTINYNET_FAUCET_URL = "https://faucet.mutinynet.com";
 const SWAPS_FILE = path.join(DATA_DIR, "swaps.json");
 const PYDEPS_DIR = path.join(__dirname, "pydeps");
 const LLAMA_DIR = path.join(__dirname, "llama");
-const LLAMA_EXE = path.join(LLAMA_DIR, "llama-server.exe");
+const LLAMA_EXE = process.platform === "win32"
+  ? path.join(LLAMA_DIR, "llama-server.exe")
+  : (() => { try { return require("child_process").execSync("which llama-server", { encoding: "utf8" }).trim(); } catch { return path.join(LLAMA_DIR, "llama-server"); } })();
 const MODELS_DIR = path.join(__dirname, "models");
 const LLM_HOST = "127.0.0.1";
-const LLM_PORT = 8080;
+const LLM_PORT = (() => {
+  const env = parseInt(process.env.LLM_PORT, 10);
+  return Number.isInteger(env) && env > 0 ? env : 8080;
+})();
 const LLM_BASE_URL = `http://${LLM_HOST}:${LLM_PORT}`;
 const DEFAULT_MODEL_NAME = "Qwen2.5-0.5B-Instruct-Q3_K_M.gguf";
 const CURATED_MODELS = [
@@ -3587,11 +3592,28 @@ function getModelManagerUiScript() {
 }
 
 function openBrowser() {
-  spawn("cmd", ["/c", "start", "", `http://${HOST}:${PORT}`], {
-    detached: true,
-    stdio: "ignore",
-    shell: false,
-  }).unref();
+  const url = `http://${HOST}:${PORT}`;
+  const platform = process.platform;
+  let cmd, args;
+  if (platform === "darwin") {
+    cmd = "open";
+    args = [url];
+  } else if (platform === "win32") {
+    cmd = "cmd";
+    args = ["/c", "start", "", url];
+  } else {
+    cmd = "xdg-open";
+    args = [url];
+  }
+  try {
+    const child = spawn(cmd, args, {
+      detached: true,
+      stdio: "ignore",
+      shell: false,
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch (_) {}
 }
 
 function listAvailableModels() {
@@ -3739,7 +3761,7 @@ function getModelPath(modelName = currentModelName) {
 
 async function llamaHealth() {
   if (!fs.existsSync(LLAMA_EXE)) {
-    return { ok: false, host: LLM_BASE_URL, model: currentModelName, error: "llama-server.exe not found" };
+    return { ok: false, host: LLM_BASE_URL, model: currentModelName, error: "llama-server not found" };
   }
   if (!fs.existsSync(getModelPath())) {
     return { ok: false, host: LLM_BASE_URL, model: currentModelName, error: "GGUF model not found" };
@@ -4120,7 +4142,7 @@ function stopLlamaServer() {
 function startLlamaServer() {
   resolveCurrentModelName();
   if (!fs.existsSync(LLAMA_EXE)) {
-    updateLlmStatus({ connected: false, mode: "error", error: "llama-server.exe missing in ./llama", switching: false });
+    updateLlmStatus({ connected: false, mode: "error", error: "llama-server not found", switching: false });
     return;
   }
   if (!fs.existsSync(getModelPath())) {
@@ -4139,7 +4161,7 @@ function startLlamaServer() {
 
   try {
     llamaProcess = spawn(LLAMA_EXE, args, {
-      cwd: LLAMA_DIR,
+      cwd: fs.existsSync(LLAMA_DIR) ? LLAMA_DIR : __dirname,
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
     });
