@@ -3119,6 +3119,13 @@ function openNodesMap() {
     };
     roleLegendControl.addTo(_mapInstance);
 
+    const networkLayersControl = L.DomUtil.create("div", "nodes-map-network-layers");
+    networkLayersControl.id = "mapNetworkLayers";
+    nodesMapContainer.appendChild(networkLayersControl);
+    L.DomEvent.disableClickPropagation(networkLayersControl);
+    L.DomEvent.disableScrollPropagation(networkLayersControl);
+    _takShieldUiElement(networkLayersControl);
+
     const takPanelControl = L.control({ position: "topleft" });
     takPanelControl.onAdd = function () {
       const div = L.DomUtil.create("div", "tak-panel hidden");
@@ -3129,10 +3136,6 @@ function openNodesMap() {
           `<button id="takPanelCloseBtn" class="tak-panel-close" title="Close TAK panel" aria-label="Close TAK panel">` +
             `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>` +
           `</button>` +
-        `</div>` +
-        `<div class="tak-section">` +
-          `<div class="tak-section-title">Network Layers</div>` +
-          `<div id="takAutoLayers" class="tak-auto-layers"></div>` +
         `</div>` +
         `<div class="tak-section">` +
           `<div class="tak-section-title">` +
@@ -3216,6 +3219,7 @@ function openNodesMap() {
         this.classList.add("nodes-map-toggle-btn--active");
       }
     });
+    _takRefreshPanel();
   }
 
   // Force Leaflet to recalculate size after the modal becomes visible
@@ -3364,6 +3368,11 @@ function _bearingDegrees(lat1, lon1, lat2, lon2) {
   const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
   const deg = Math.atan2(y, x) * 180 / Math.PI;
   return (deg + 360) % 360;
+}
+
+function _isNodeLayerVisible(node) {
+  const statusKey = node?.online ? "online" : "offline";
+  return _takAutoLayerVis[statusKey] !== false;
 }
 
 function _takRenderAllIncomingFeatures() {
@@ -3824,7 +3833,7 @@ function _takClosePanel() {
 
 function _takRefreshPanel() {
   // Auto-layers
-  const autoEl = document.getElementById("takAutoLayers");
+  const autoEl = document.getElementById("mapNetworkLayers");
   if (autoEl) {
     autoEl.innerHTML = "";
     const autoLayers = [
@@ -3834,7 +3843,7 @@ function _takRefreshPanel() {
     autoLayers.forEach(al => {
       const vis = _takAutoLayerVis[al.key] !== false;
       const row = document.createElement("div");
-      row.className = "tak-layer-row";
+      row.className = "tak-layer-row nodes-map-network-layer-row";
       row.innerHTML =
         `<div class="tak-layer-color" style="background:${al.color}"></div>` +
         `<span class="tak-layer-name${vis ? "" : " tak-layer-hidden"}">${al.label}</span>` +
@@ -4255,6 +4264,7 @@ function _renderMapNodes(fitBounds = true) {
   _mapLines = [];
 
   // Lookup tables for estimated positioning
+  const visibleNodes = latestNodes.filter((node) => _isNodeLayerVisible(node));
   const allByMeshNum = {};
   for (const n of latestNodes) {
     if (n.meshNum != null) allByMeshNum[String(n.meshNum)] = n;
@@ -4270,7 +4280,10 @@ function _renderMapNodes(fitBounds = true) {
     }
   }
 
-  const withPos = latestNodes.filter(
+  const withPos = visibleNodes.filter(
+    (n) => n.latitude != null && n.longitude != null && n.latitude !== 0 && n.longitude !== 0
+  );
+  const estimationAnchors = latestNodes.filter(
     (n) => n.latitude != null && n.longitude != null && n.latitude !== 0 && n.longitude !== 0
   );
 
@@ -4291,11 +4304,7 @@ function _renderMapNodes(fitBounds = true) {
 
     const online = !!node.online;
 
-    // TAK auto-layer visibility filter
-    if (_mapTakMode) {
-      const statusKey = online ? "online" : "offline";
-      if (_takAutoLayerVis[statusKey] === false) return;
-    }
+    if (!_isNodeLayerVisible(node)) return;
     const shortName = node.shortName || (node.userId || node.id || "?").slice(0, 4);
     const label = node.longName || node.shortName || node.userId || node.id || "?";
     const status = online ? "online" : "offline";
@@ -4403,14 +4412,25 @@ function _renderMapNodes(fitBounds = true) {
   // Collect all render entries: GPS nodes + estimated nodes
   const renderEntries = [];
   withPos.forEach((node) => renderEntries.push({ lat: node.latitude, lon: node.longitude, node, estimated: false }));
-  const noGpsNodes = latestNodes.filter(
+  const noGpsNodes = visibleNodes.filter(
     (n) => !(n.latitude != null && n.longitude != null && n.latitude !== 0 && n.longitude !== 0)
   );
   for (const node of noGpsNodes) {
-    const est = _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup);
+    const est = _estimateNodePosition(node, estimationAnchors, allByMeshNum, reverseLookup);
     if (!est) continue;
     renderEntries.push({ lat: est.latitude, lon: est.longitude, node, estimated: true });
   }
+
+  renderEntries.sort((a, b) => {
+    const aOnline = a.node?.online ? 1 : 0;
+    const bOnline = b.node?.online ? 1 : 0;
+    if (aOnline !== bOnline) {
+      return aOnline - bOnline;
+    }
+    const aEstimated = a.estimated ? 1 : 0;
+    const bEstimated = b.estimated ? 1 : 0;
+    return aEstimated - bEstimated;
+  });
 
   // Group by rounded position (~11m grid) and spread overlapping nodes in a small circle
   const SPREAD_R_M = 70; // spread radius in meters
@@ -4433,9 +4453,11 @@ function _renderMapNodes(fitBounds = true) {
     });
   }
 
-  // Build position map and edge map for all rendered nodes (used by hover links)
+  const onlineRenderEntries = renderEntries.filter(({ node }) => !!node.online);
+
+  // Build position map and edge map for online rendered nodes only (used by hover links)
   _renderedPos = new Map();
-  for (const { lat, lon, node } of renderEntries) {
+  for (const { lat, lon, node } of onlineRenderEntries) {
     if (node.meshNum != null) _renderedPos.set(String(node.meshNum), { lat, lon });
   }
 
@@ -4446,7 +4468,7 @@ function _renderMapNodes(fitBounds = true) {
     _nodeEdges.get(k).push({ to: String(toNum), snr: snr ?? null });
   }
   // NEIGHBORINFO edges (bidirectional)
-  for (const { node } of renderEntries) {
+  for (const { node } of onlineRenderEntries) {
     if (!node.meshNum) continue;
     for (const nb of (node.neighbors || [])) {
       _addEdge(node.meshNum, nb.nodeId, nb.snr);
@@ -4461,8 +4483,8 @@ function _renderMapNodes(fitBounds = true) {
     }
   }
   // hopsAway fallback edges
-  const ourEntry = renderEntries.find((e) => e.node.hopsAway === 0);
-  const hop1Entries = renderEntries.filter((e) => e.node.hopsAway === 1 && e.node.meshNum != null);
+  const ourEntry = onlineRenderEntries.find((e) => e.node.hopsAway === 0);
+  const hop1Entries = onlineRenderEntries.filter((e) => e.node.hopsAway === 1 && e.node.meshNum != null);
   if (ourEntry?.node.meshNum != null) {
     // hop1 Р Р†РІР‚В РІР‚в„ў ourNode
     for (const { node } of hop1Entries) {
@@ -4470,7 +4492,7 @@ function _renderMapNodes(fitBounds = true) {
       _addEdge(ourEntry.node.meshNum, node.meshNum, node.snr);
     }
     // hop2 Р Р†РІР‚В РІР‚в„ў nearest hop1 + ourNode Р Р†РІР‚В РІР‚в„ў that hop1 (same relay logic as _renderMapLinks)
-    for (const { node } of renderEntries) {
+    for (const { node } of onlineRenderEntries) {
       if (node.hopsAway !== 2 || !node.meshNum) continue;
       // find nearest hop1 by distance
       const myPos = _renderedPos.get(String(node.meshNum));
@@ -4717,15 +4739,18 @@ function _renderMapLinks(withPos) {
     _mapLines.push(line);
   }
 
+  const onlineNodes = withPos.filter((node) => !!node.online);
+  if (onlineNodes.length === 0) return;
+
   // Build meshNum lookup
   const byMeshNum = {};
-  for (const node of withPos) {
+  for (const node of onlineNodes) {
     if (node.meshNum != null) byMeshNum[String(node.meshNum)] = node;
   }
 
   // Р Р†Р вЂљРІР‚Сњ Real topology from NEIGHBORINFO_APP (solid, colored by SNR) Р Р†Р вЂљРІР‚Сњ
   const hasNeighbors = new Set();
-  for (const node of withPos) {
+  for (const node of onlineNodes) {
     if (!node.neighbors || node.neighbors.length === 0) continue;
     if (node.meshNum != null) hasNeighbors.add(String(node.meshNum));
     for (const nb of node.neighbors) {
@@ -4749,12 +4774,12 @@ function _renderMapLinks(withPos) {
   }
 
   // Р Р†Р вЂљРІР‚Сњ hopsAway fallback (dashed) for nodes without NEIGHBORINFO data Р Р†Р вЂљРІР‚Сњ
-  const ourNode = withPos.find((n) => n.hopsAway === 0);
+  const ourNode = onlineNodes.find((n) => n.hopsAway === 0);
   if (!ourNode) return;
 
-  const hop1 = withPos.filter((n) => n.hopsAway === 1 && !hasNeighbors.has(String(n.meshNum ?? "")));
-  const hop1All = withPos.filter((n) => n.hopsAway === 1);
-  const hop2 = withPos.filter((n) => n.hopsAway === 2 && !hasNeighbors.has(String(n.meshNum ?? "")));
+  const hop1 = onlineNodes.filter((n) => n.hopsAway === 1 && !hasNeighbors.has(String(n.meshNum ?? "")));
+  const hop1All = onlineNodes.filter((n) => n.hopsAway === 1);
+  const hop2 = onlineNodes.filter((n) => n.hopsAway === 2 && !hasNeighbors.has(String(n.meshNum ?? "")));
 
   // Direct nodes (1 hop) Р Р†Р вЂљРІР‚Сњ dashed blue
   for (const node of hop1) {

@@ -229,13 +229,15 @@ const MESH_PACKET_BATCH_DELAY_MS_CASHU = 6000;
 const MESH_ACK_RETRY_COUNT = 1;
 const MESH_ACK_RETRY_DELAY_MS = 1800;
 const WEATHER_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const NODE_ONLINE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const NODE_ONLINE_MAX_AGE_MS = 5 * 60 * 1000;
+const NODES_STATUS_PUSH_INTERVAL_MS = 60 * 1000;
 const MIN_VALID_MODEL_BYTES = 1024 * 1024;
 
 const sessions = new Map();
 const clients = new Set();
 const latestTakFeatures = new Map(); // uid -> feature
 let nodesRefreshInterval = null;
+let nodesStatusPushInterval = null;
 let messages = [];
 let knownNodes = {};
 let appSettings = {};
@@ -247,7 +249,7 @@ let swaps = [];
 let meshtasticStatus = { connected: false, mode: "starting", error: null };
 let localMeshNodeId = null;
 // Observed mesh links from relayNode field in packets: key = "fromMeshNum|viaMeshNum"
-const MESH_LINK_TTL_MS = 30 * 60 * 1000; // 30 min
+const MESH_LINK_TTL_MS = 5 * 60 * 1000;
 let meshLinks = {};
 let currentModelName = DEFAULT_MODEL_NAME;
 let llmStatus = { connected: false, mode: "starting", model: currentModelName, error: null, switching: false };
@@ -2424,6 +2426,42 @@ function updateKnownNode(sender, text) {
   persistNodes();
 }
 
+function makeNodeSnapshotSignature(node) {
+  const environmentMetrics = node?.environmentMetrics ? JSON.stringify(node.environmentMetrics) : "";
+  const neighbors = Array.isArray(node?.neighbors)
+    ? node.neighbors.map((nb) => `${nb?.nodeId ?? ""}:${nb?.snr ?? ""}`).join(",")
+    : "";
+  const weather = node?.weather
+    ? [
+        node.weather.summary ?? "",
+        node.weather.temperature ?? "",
+        node.weather.humidity ?? "",
+        node.weather.pressure ?? "",
+        node.weather.wind ?? "",
+      ].join("|")
+    : "";
+  return [
+    node?.id ?? "",
+    node?.meshNum ?? "",
+    node?.userId ?? "",
+    node?.shortName ?? "",
+    node?.longName ?? "",
+    node?.hardware ?? "",
+    node?.meshtasticRole ?? "",
+    node?.lastHeard ?? "",
+    node?.snr ?? "",
+    node?.hopsAway ?? "",
+    node?.batteryLevel ?? "",
+    node?.voltage ?? "",
+    node?.latitude ?? "",
+    node?.longitude ?? "",
+    environmentMetrics,
+    neighbors,
+    node?.role ?? "",
+    weather,
+  ].join("~");
+}
+
 function isNodeOnline(node) {
   const stamp = node.lastSeenAt || node.lastHeard;
   if (!stamp) {
@@ -2435,9 +2473,19 @@ function isNodeOnline(node) {
 
 function getNodesPayload() {
   const now = Date.now();
-  const activeLinks = Object.values(meshLinks).filter((l) => now - l.lastSeen < MESH_LINK_TTL_MS);
+  const nodes = Object.values(knownNodes);
+  const onlineMeshNums = new Set(
+    nodes
+      .filter((node) => isNodeOnline(node) && node.meshNum != null)
+      .map((node) => String(node.meshNum))
+  );
+  const activeLinks = Object.values(meshLinks).filter((l) =>
+    now - l.lastSeen < MESH_LINK_TTL_MS &&
+    onlineMeshNums.has(String(l.from ?? "")) &&
+    onlineMeshNums.has(String(l.via ?? ""))
+  );
   return {
-    nodes: Object.values(knownNodes)
+    nodes: nodes
       .sort((a, b) => {
         const aOnline = isNodeOnline(a) ? 1 : 0;
         const bOnline = isNodeOnline(b) ? 1 : 0;
@@ -2468,7 +2516,6 @@ function trackMeshLink(payload) {
   // Link: sender <-> relay
   const key = `${senderNode.meshNum}|${relayNodeObj.meshNum}`;
   meshLinks[key] = { from: senderNode.meshNum, via: relayNodeObj.meshNum, snr, lastSeen: now };
-  broadcast("nodes", getNodesPayload());
 }
 
 function findNodeByMeshNum(userId) {
@@ -2501,7 +2548,7 @@ function mergeBridgeNodes(nodes) {
       lastDecoded: null,
     };
 
-    knownNodes[nodeId] = {
+    const nextNode = {
       ...existing,
       id: nodeId,
       meshNum: bridgeNode.id || existing.meshNum || null,
@@ -2523,12 +2570,15 @@ function mergeBridgeNodes(nodes) {
       observedPortnums: existing.observedPortnums || [],
       lastDecoded: existing.lastDecoded || null,
     };
-    knownNodes[nodeId].weather = extractWeatherFromNode(knownNodes[nodeId]) || existing.weather || null;
-    knownNodes[nodeId].role = inferNodeRoleFromMeta(knownNodes[nodeId]);
-    if (!hasRealWeatherData(knownNodes[nodeId])) {
-      knownNodes[nodeId].weather = null;
+    nextNode.weather = extractWeatherFromNode(nextNode) || existing.weather || null;
+    nextNode.role = inferNodeRoleFromMeta(nextNode);
+    if (!hasRealWeatherData(nextNode)) {
+      nextNode.weather = null;
     }
-    changed = true;
+    if (makeNodeSnapshotSignature(existing) !== makeNodeSnapshotSignature(nextNode)) {
+      changed = true;
+    }
+    knownNodes[nodeId] = nextNode;
   }
 
   if (changed) {
@@ -4483,8 +4533,8 @@ function startBridge() {
           } else if (message.type === "nodes") {
             mergeBridgeNodes(message.payload?.nodes || []);
           } else if (message.type === "packet") {
-            mergePacket(message.payload?.sender, message.payload);
             trackMeshLink(message.payload);
+            mergePacket(message.payload?.sender, message.payload);
           } else if (message.type === "telemetry") {
             mergeTelemetry(message.payload?.sender, message.payload);
             addMessage({
@@ -4713,6 +4763,15 @@ function startBridge() {
       sendBridge({ type: "refresh_nodes", payload: {} });
     } catch {}
   }, 1500);
+
+  if (nodesStatusPushInterval) {
+    clearInterval(nodesStatusPushInterval);
+  }
+  nodesStatusPushInterval = setInterval(() => {
+    if (clients.size > 0) {
+      broadcast("nodes", getNodesPayload());
+    }
+  }, NODES_STATUS_PUSH_INTERVAL_MS);
 }
 
 function restartBridge(port = undefined) {
