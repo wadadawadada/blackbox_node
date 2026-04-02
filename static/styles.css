@@ -1242,6 +1242,7 @@ button {
   white-space: nowrap;
   width: 100%;
   text-align: left;
+  border-radius: 0;
 }
 
 .nodes-map-toggle-btn:hover {
@@ -1262,7 +1263,7 @@ button {
   padding: 5px 8px;
   height: 28px;
   border: 1px solid #3a4450;
-  border-radius: 3px;
+  border-radius: 0;
   background: #252b32;
   box-sizing: border-box;
 }
@@ -1287,7 +1288,7 @@ button {
   width: 72px;
   height: 3px;
   background: #3a4a55;
-  border-radius: 2px;
+  border-radius: 0;
   outline: none;
   cursor: pointer;
 }
@@ -1297,7 +1298,7 @@ button {
   appearance: none;
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: 0;
   background: #4a9eff;
   cursor: pointer;
 }
@@ -1305,7 +1306,7 @@ button {
 .nodes-map-hops-slider::-moz-range-thumb {
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: 0;
   background: #4a9eff;
   border: none;
   cursor: pointer;
@@ -1361,7 +1362,7 @@ button {
 .nodes-map-legend {
   background: rgba(18, 26, 32, 0.88);
   border: 1px solid #2e3a45;
-  border-radius: 5px;
+  border-radius: 0;
   padding: 7px 10px;
   font-family: "Press Start Local", monospace;
   font-size: 9px;
@@ -1388,7 +1389,7 @@ button {
   display: inline-block;
   width: 18px;
   height: 2px;
-  border-radius: 1px;
+  border-radius: 0;
   flex-shrink: 0;
 }
 
@@ -1429,7 +1430,7 @@ button {
 
 .nodes-map-role-item {
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: 0;
   padding: 1px 2px;
   transition: opacity 0.15s;
 }
@@ -1581,8 +1582,27 @@ button {
 
 .ai-settings-meta {
   display: grid;
-  gap: 2px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
   padding: 10px;
+}
+
+.ai-settings-meta-copy {
+  min-width: 0;
+}
+
+.ai-settings-meta-copy .device-status-text {
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.ai-settings-meta-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .ai-settings-grid {
@@ -1642,12 +1662,25 @@ button {
 .model-card {
   display: grid;
   gap: 6px;
-  padding: 8px;
+  position: relative;
+  overflow: hidden;
+  padding: 8px 8px 8px 14px;
   background: #20242a;
   border-top: 1px solid var(--edge-light);
   border-left: 1px solid var(--edge-light);
   border-right: 1px solid var(--edge-dark);
   border-bottom: 1px solid var(--edge-dark);
+}
+
+.model-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: var(--model-accent, #6a7a8a);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.35);
 }
 
 .model-card-head {
@@ -3493,6 +3526,15 @@ textarea,
     grid-template-columns: 1fr;
   }
 
+  .ai-settings-meta {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .ai-settings-meta-toggle {
+    justify-content: flex-start;
+  }
+
   .ai-settings-input-grid {
     grid-template-columns: 1fr;
   }
@@ -3743,6 +3785,12 @@ textarea,
   padding: 4px 0;
 }
 
+.device-meta-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
 .device-meta-field {
   display: grid;
   gap: 4px;
@@ -3762,7 +3810,8 @@ textarea,
   font-family: inherit;
 }
 
-.device-meta-form input {
+.device-meta-form input,
+.device-meta-form select {
   width: 100%;
   box-sizing: border-box;
 }
@@ -3770,6 +3819,12 @@ textarea,
 .device-meta-form button {
   width: 100%;
   margin-top: 4px;
+}
+
+@media (max-width: 560px) {
+  .device-meta-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .chat-channel-modal-panel {

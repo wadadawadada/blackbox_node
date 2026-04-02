@@ -221,6 +221,7 @@ const deviceMetaLat = document.getElementById("deviceMetaLat");
 const deviceMetaLon = document.getElementById("deviceMetaLon");
 const deviceMetaTakChannel = document.getElementById("deviceMetaTakChannel");
 const deviceMetaTakHopLimit = document.getElementById("deviceMetaTakHopLimit");
+const deviceMetaModemPreset = document.getElementById("deviceMetaModemPreset");
 const deviceMetaStatus = document.getElementById("deviceMetaStatus");
 const deviceMetaSave = document.getElementById("deviceMetaSave");
 const chatChannelModal = document.getElementById("chatChannelModal");
@@ -1418,6 +1419,26 @@ function createTag(label, extraClass = "") {
   return tag;
 }
 
+function getModelCardAccent(model = {}) {
+  const haystack = [model.family, model.name, model.filename]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (haystack.includes("deepseek")) return "#4a9eff";
+  if (haystack.includes("mistral") || haystack.includes("ministral")) return "#ff9a3c";
+  if (haystack.includes("qwen")) return "#39c78d";
+  if (haystack.includes("smollm")) return "#b8ef4e";
+  if (haystack.includes("tinyllama") || haystack.includes("llama")) return "#ff6b57";
+  if (haystack.includes("stable code") || haystack.includes("stable-code")) return "#b18cff";
+  return "#6a7a8a";
+}
+
+function applyModelCardAccent(card, model = {}) {
+  if (!card) return;
+  card.style.setProperty("--model-accent", getModelCardAccent(model));
+}
+
 async function selectModelFromManager(filename) {
   await fetchJson("/api/models/select", {
     method: "POST",
@@ -1451,6 +1472,7 @@ function renderInstalledModels(models = [], operation = {}) {
   models.forEach((model) => {
     const card = document.createElement("article");
     card.className = "model-card";
+    applyModelCardAccent(card, model);
 
     const head = document.createElement("div");
     head.className = "model-card-head";
@@ -1470,7 +1492,7 @@ function renderInstalledModels(models = [], operation = {}) {
     if (model.current) {
       tags.appendChild(createTag("Current", "current"));
     }
-    tags.appendChild(createTag("Installed", "available"));
+    tags.appendChild(createTag("Installed"));
     head.appendChild(titleWrap);
     head.appendChild(tags);
     card.appendChild(head);
@@ -1531,6 +1553,7 @@ function renderCatalogModels(models = [], operation = {}) {
   installable.forEach((model) => {
     const card = document.createElement("article");
     card.className = "model-card";
+    applyModelCardAccent(card, model);
 
     const head = document.createElement("div");
     head.className = "model-card-head";
@@ -1547,7 +1570,6 @@ function renderCatalogModels(models = [], operation = {}) {
 
     const tags = document.createElement("div");
     tags.className = "model-card-tags";
-    tags.appendChild(createTag("Catalog", "available"));
     head.appendChild(titleWrap);
     head.appendChild(tags);
     card.appendChild(head);
@@ -1727,6 +1749,7 @@ function openDeviceMetaModal() {
   deviceMetaLon.value = "";
   if (deviceMetaTakChannel) deviceMetaTakChannel.value = "";
   if (deviceMetaTakHopLimit) deviceMetaTakHopLimit.value = "";
+  if (deviceMetaModemPreset) deviceMetaModemPreset.value = "LONG_FAST";
   fetchJson("/api/device-meta").then((data) => {
     deviceMetaShortName.value = data.shortName || "";
     deviceMetaLongName.value = data.longName || "";
@@ -1734,6 +1757,7 @@ function openDeviceMetaModal() {
     deviceMetaLon.value = data.longitude != null ? data.longitude : "";
     if (deviceMetaTakChannel) deviceMetaTakChannel.value = data.takChannel != null ? data.takChannel : 0;
     if (deviceMetaTakHopLimit) deviceMetaTakHopLimit.value = data.takHopLimit != null ? data.takHopLimit : 3;
+    if (deviceMetaModemPreset) deviceMetaModemPreset.value = data.modemPreset || "LONG_FAST";
     deviceMetaStatus.textContent = "";
   }).catch((err) => {
     deviceMetaStatus.textContent = `Load error: ${err.message}`;
@@ -2705,6 +2729,9 @@ let _mapColorByRole = false;
 let _mapRoleFilter = new Set(); // empty = show all
 let _mapHoverMaxHops = 3;
 let _mapShowTooltips = true;
+const MAP_PREFS_STORAGE_KEY = "nodesMapPrefs";
+let _mapPrefsSaveTimer = null;
+let _mapSavedView = null;
 
 // Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ TAK / ATAK layer mode Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ
 let _takIncomingLayer = null;          // Leaflet LayerGroup for network-received features
@@ -2735,6 +2762,103 @@ const _TAK_MARKER_PRESETS = [
   { id: "target", label: "Target", cotType: "a-h-G", color: "#ff9043", symbol: "crosshair" },
   { id: "sensor", label: "Sensor", cotType: "a-f-G-E-V-C", color: "#00d4d4", symbol: "hex" },
 ];
+
+function _loadMapPrefs() {
+  try {
+    const raw = localStorage.getItem(MAP_PREFS_STORAGE_KEY);
+    if (!raw) return;
+    const prefs = JSON.parse(raw) || {};
+    if (typeof prefs.showTooltips === "boolean") _mapShowTooltips = prefs.showTooltips;
+    if (typeof prefs.showRadius === "boolean") _mapShowRadius = prefs.showRadius;
+    if (prefs.radiusStyle === "fill" || prefs.radiusStyle === "rings") _mapRadiusStyle = prefs.radiusStyle;
+    if (typeof prefs.showLinks === "boolean") _mapShowLinks = prefs.showLinks;
+    if (typeof prefs.colorByRole === "boolean") _mapColorByRole = prefs.colorByRole;
+    if (Number.isFinite(Number(prefs.hoverMaxHops))) {
+      _mapHoverMaxHops = Math.max(1, Math.min(9, Number(prefs.hoverMaxHops)));
+    }
+    if (typeof prefs.takMode === "boolean") _mapTakMode = prefs.takMode;
+    if (prefs.autoLayers && typeof prefs.autoLayers === "object") {
+      _takAutoLayerVis = {
+        online: prefs.autoLayers.online !== false,
+        offline: prefs.autoLayers.offline !== false,
+      };
+    }
+    const center = Array.isArray(prefs.view?.center) ? prefs.view.center : null;
+    const zoom = Number(prefs.view?.zoom);
+    if (center && center.length >= 2 && Number.isFinite(Number(center[0])) && Number.isFinite(Number(center[1])) && Number.isFinite(zoom)) {
+      _mapSavedView = { center: [Number(center[0]), Number(center[1])], zoom };
+    }
+  } catch {}
+}
+
+function _saveMapPrefs() {
+  try {
+    let view = _mapSavedView;
+    if (_mapInstance) {
+      const center = _mapInstance.getCenter();
+      view = { center: [center.lat, center.lng], zoom: _mapInstance.getZoom() };
+      _mapSavedView = view;
+    }
+    localStorage.setItem(MAP_PREFS_STORAGE_KEY, JSON.stringify({
+      showTooltips: _mapShowTooltips,
+      showRadius: _mapShowRadius,
+      radiusStyle: _mapRadiusStyle,
+      showLinks: _mapShowLinks,
+      colorByRole: _mapColorByRole,
+      hoverMaxHops: _mapHoverMaxHops,
+      takMode: _mapTakMode,
+      autoLayers: {
+        online: _takAutoLayerVis.online !== false,
+        offline: _takAutoLayerVis.offline !== false,
+      },
+      view,
+    }));
+  } catch {}
+}
+
+function _scheduleSaveMapPrefs() {
+  if (_mapPrefsSaveTimer) clearTimeout(_mapPrefsSaveTimer);
+  _mapPrefsSaveTimer = setTimeout(() => {
+    _mapPrefsSaveTimer = null;
+    _saveMapPrefs();
+  }, 150);
+}
+
+function _syncMapControls() {
+  const tooltipsBtn = document.getElementById("mapToggleTooltips");
+  if (tooltipsBtn) tooltipsBtn.classList.toggle("nodes-map-toggle-btn--active", _mapShowTooltips);
+
+  const radiusBtn = document.getElementById("mapToggleRadius");
+  if (radiusBtn) radiusBtn.classList.toggle("nodes-map-toggle-btn--active", _mapShowRadius);
+  const radiusStyleControl = document.getElementById("mapRadiusStyleControl");
+  if (radiusStyleControl) radiusStyleControl.classList.toggle("hidden", !_mapShowRadius);
+  const radiusStyleBtn = document.getElementById("mapRadiusStyleBtn");
+  if (radiusStyleBtn) {
+    radiusStyleBtn.classList.toggle("nodes-map-style-btn--fill", _mapRadiusStyle === "fill");
+    radiusStyleBtn.classList.toggle("nodes-map-style-btn--rings", _mapRadiusStyle === "rings");
+  }
+
+  const linksBtn = document.getElementById("mapToggleLinks");
+  if (linksBtn) linksBtn.classList.toggle("nodes-map-toggle-btn--active", _mapShowLinks);
+  const linksLegend = document.getElementById("mapLinksLegend");
+  if (linksLegend) linksLegend.style.display = _mapShowLinks ? "" : "none";
+  const hopsControl = document.getElementById("mapHopsControl");
+  if (hopsControl) hopsControl.classList.toggle("hidden", !_mapShowLinks);
+  const hopsValue = document.getElementById("mapHopsVal");
+  if (hopsValue) hopsValue.textContent = String(_mapHoverMaxHops);
+  const hopsSlider = document.getElementById("mapHopsSlider");
+  if (hopsSlider) hopsSlider.value = String(_mapHoverMaxHops);
+
+  const roleBtn = document.getElementById("mapToggleRole");
+  if (roleBtn) roleBtn.classList.toggle("nodes-map-toggle-btn--active", _mapColorByRole);
+  const roleLegend = document.getElementById("mapRoleLegend");
+  if (roleLegend) roleLegend.style.display = _mapColorByRole ? "" : "none";
+
+  const takBtn = document.getElementById("mapToggleTak");
+  if (takBtn) takBtn.classList.toggle("nodes-map-toggle-btn--active", _mapTakMode);
+}
+
+_loadMapPrefs();
 
 function _takBumpIgnoreMapClick(ms = 350) {
   _takIgnoreMapClicksUntil = Math.max(_takIgnoreMapClicksUntil, Date.now() + ms);
@@ -3049,9 +3173,11 @@ function openNodesMap() {
   nodesMapModal.setAttribute("aria-hidden", "false");
 
   if (!_mapInstance) {
+    const initialCenter = _mapSavedView?.center || [20, 0];
+    const initialZoom = Number.isFinite(_mapSavedView?.zoom) ? _mapSavedView.zoom : 2;
     _mapInstance = L.map(nodesMapContainer, {
-      center: [20, 0],
-      zoom: 2,
+      center: initialCenter,
+      zoom: initialZoom,
       zoomControl: true,
       attributionControl: true,
       scrollWheelZoom: true,
@@ -3177,17 +3303,20 @@ function openNodesMap() {
       if (!_mapShowTooltips) {
         _mapMarkers.forEach(m => m.closePopup());
       }
+      _scheduleSaveMapPrefs();
     });
     document.getElementById("mapToggleRadius").addEventListener("click", function () {
       _mapShowRadius = !_mapShowRadius;
       this.classList.toggle("nodes-map-toggle-btn--active", _mapShowRadius);
       document.getElementById("mapRadiusStyleControl").classList.toggle("hidden", !_mapShowRadius);
+      _scheduleSaveMapPrefs();
       _renderMapNodes(false);
     });
     document.getElementById("mapRadiusStyleBtn").addEventListener("click", function () {
       _mapRadiusStyle = _mapRadiusStyle === "fill" ? "rings" : "fill";
       this.classList.toggle("nodes-map-style-btn--fill", _mapRadiusStyle === "fill");
       this.classList.toggle("nodes-map-style-btn--rings", _mapRadiusStyle === "rings");
+      _scheduleSaveMapPrefs();
       _renderMapNodes(false);
     });
     document.getElementById("mapToggleLinks").addEventListener("click", function () {
@@ -3196,6 +3325,7 @@ function openNodesMap() {
       const legend = document.getElementById("mapLinksLegend");
       if (legend) legend.style.display = _mapShowLinks ? "" : "none";
       document.getElementById("mapHopsControl").classList.toggle("hidden", !_mapShowLinks);
+      _scheduleSaveMapPrefs();
       _renderMapNodes(false);
     });
     document.getElementById("mapToggleRole").addEventListener("click", function () {
@@ -3204,11 +3334,13 @@ function openNodesMap() {
       const legend = document.getElementById("mapRoleLegend");
       if (legend) legend.style.display = _mapColorByRole ? "" : "none";
       if (!_mapColorByRole) _mapRoleFilter = new Set();
+      _scheduleSaveMapPrefs();
       _renderMapNodes(false);
     });
     document.getElementById("mapHopsSlider").addEventListener("input", function () {
       _mapHoverMaxHops = parseInt(this.value);
       document.getElementById("mapHopsVal").textContent = _mapHoverMaxHops;
+      _scheduleSaveMapPrefs();
     });
     document.getElementById("mapToggleTak").addEventListener("click", function () {
       if (_mapTakMode) {
@@ -3219,14 +3351,22 @@ function openNodesMap() {
         this.classList.add("nodes-map-toggle-btn--active");
       }
     });
+    _mapInstance.on("moveend zoomend", () => {
+      _scheduleSaveMapPrefs();
+    });
+    _syncMapControls();
     _takRefreshPanel();
+    if (_mapTakMode) {
+      _takOpenPanel();
+    }
   }
 
   // Force Leaflet to recalculate size after the modal becomes visible
   requestAnimationFrame(() => {
     _mapInstance.invalidateSize();
     _takRenderAllIncomingFeatures();
-    _renderMapNodes();
+    _syncMapControls();
+    _renderMapNodes(!_mapSavedView);
   });
 }
 
@@ -3810,6 +3950,8 @@ function _takOpenPanel() {
   _takRenderAllCustomLayers();
   _takRenderAllIncomingFeatures();
   _takRefreshPanel();
+  _syncMapControls();
+  _scheduleSaveMapPrefs();
   _renderMapNodes(false);
 }
 
@@ -3828,6 +3970,8 @@ function _takClosePanel() {
   _takIncomingMap.clear();
   _takCustomLayers = [];
   _takActiveLayerId = null;
+  _syncMapControls();
+  _scheduleSaveMapPrefs();
   _renderMapNodes(false);
 }
 
@@ -3851,6 +3995,7 @@ function _takRefreshPanel() {
       row.querySelector(".tak-layer-vis").addEventListener("click", (e) => {
         _takConsumeUiEvent(e);
         _takAutoLayerVis[al.key] = !vis;
+        _scheduleSaveMapPrefs();
         _renderMapNodes(false);
         _takRefreshPanel();
       });
@@ -6077,6 +6222,9 @@ deviceMetaSave.addEventListener("click", () => {
   }
   if (deviceMetaTakHopLimit && deviceMetaTakHopLimit.value.trim() !== "") {
     payload.takHopLimit = parseInt(deviceMetaTakHopLimit.value, 10);
+  }
+  if (deviceMetaModemPreset && deviceMetaModemPreset.value.trim() !== "") {
+    payload.modemPreset = deviceMetaModemPreset.value.trim();
   }
   fetchJson("/api/device-meta", { method: "POST", body: JSON.stringify(payload) }).then(() => {
     deviceMetaStatus.textContent = "Saved.";

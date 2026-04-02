@@ -775,6 +775,21 @@ def detect_port_candidates(find_ports: Any) -> tuple[list[str], list[dict[str, A
 def snapshot_nodes(interface: Any) -> list[dict[str, Any]]:
     nodes: list[dict[str, Any]] = []
     raw_nodes = getattr(interface, "nodes", {}) or {}
+    local_node_num = str(
+        getattr(getattr(interface, "localNode", None), "nodeNum", None)
+        or getattr(getattr(interface, "myInfo", None), "myNodeNum", None)
+        or ""
+    )
+    local_modem_preset = ""
+    try:
+        from meshtastic.protobuf import config_pb2  # type: ignore
+
+        local_lora = getattr(getattr(getattr(interface, "localNode", None), "localConfig", None), "lora", None)
+        preset_value = getattr(local_lora, "modem_preset", None)
+        if preset_value is not None:
+            local_modem_preset = str(config_pb2.Config.LoRaConfig.ModemPreset.Name(int(preset_value)) or "")
+    except Exception:
+        local_modem_preset = ""
     for node_id, node in raw_nodes.items():
         user = node.get("user", {}) or {}
         position = node.get("position", {}) or {}
@@ -801,6 +816,7 @@ def snapshot_nodes(interface: Any) -> list[dict[str, Any]]:
                 "voltage": metrics.get("voltage"),
                 "latitude": position.get("latitude"),
                 "longitude": position.get("longitude"),
+                "modemPreset": local_modem_preset if str(node.get("num") or node_id or "") == local_node_num else "",
                 "environmentMetrics": environment,
                 "neighbors": neighbors,
                 "raw": sanitize_for_json(node),
@@ -1127,6 +1143,8 @@ def main() -> int:
             if message.get("type") == "set_device_meta":
                 payload = message.get("payload", {})
                 try:
+                    from meshtastic.protobuf import config_pb2  # type: ignore
+
                     long_name = payload.get("longName")
                     short_name = payload.get("shortName")
                     if long_name is not None or short_name is not None:
@@ -1138,6 +1156,13 @@ def main() -> int:
                     lon = payload.get("longitude")
                     if lat is not None and lon is not None:
                         mesh_interface.localNode.setPosition(float(lat), float(lon), 0)
+                    modem_preset = str(payload.get("modemPreset") or "").strip().upper()
+                    if modem_preset:
+                        local_node = mesh_interface.localNode
+                        if len(local_node.localConfig.ListFields()) == 0:
+                            local_node.requestConfig(local_node.localConfig.DESCRIPTOR.fields_by_name.get("lora"))
+                        local_node.localConfig.lora.modem_preset = config_pb2.Config.LoRaConfig.ModemPreset.Value(modem_preset)
+                        local_node.writeConfig("lora")
                     emit("device_meta_saved", {})
                     emit("nodes", {"nodes": snapshot_nodes(mesh_interface)})
                 except Exception as exc:

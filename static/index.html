@@ -304,8 +304,14 @@
           <button id="aiSettingsClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
         </div>
         <div class="ai-settings-meta panel">
-          <div id="aiSettingsCurrentModel" class="device-status-text">Current model: n/a</div>
-          <div id="aiSettingsStatusText" class="device-status-text">Load settings to edit AI behavior.</div>
+          <div class="ai-settings-meta-copy">
+            <div id="aiSettingsCurrentModel" class="device-status-text">Current model: n/a</div>
+            <div id="aiSettingsStatusText" class="device-status-text">Load settings to edit AI behavior.</div>
+          </div>
+          <div class="ai-settings-meta-toggle">
+            <span class="ai-reply-label">AI via MESH</span>
+            <button id="meshAiReplyToggle" type="button" class="ai-reply-btn" aria-pressed="false">off</button>
+          </div>
         </div>
         <div class="ai-settings-grid">
           <div class="modal-section modal-section-wide">
@@ -325,13 +331,7 @@
             </div>
           </div>
           <div class="modal-section">
-            <div class="modal-label" style="display:flex;align-items:center;justify-content:space-between">
-              <span>Mesh Replies</span>
-              <div style="display:flex;align-items:center;gap:8px">
-                <span class="ai-reply-label">AI via MESH</span>
-                <button id="meshAiReplyToggle" type="button" class="ai-reply-btn" aria-pressed="false">off</button>
-              </div>
-            </div>
+            <div class="modal-label">Mesh Replies</div>
             <div class="ai-settings-input-grid">
               <label class="ai-settings-field" for="aiSettingsMeshTemperature"><span>Temperature</span><input id="aiSettingsMeshTemperature" type="number" min="0" max="2" step="0.05"></label>
               <label class="ai-settings-field" for="aiSettingsMeshTopP"><span>Top P</span><input id="aiSettingsMeshTopP" type="number" min="0.05" max="1" step="0.05"></label>
@@ -1078,29 +1078,50 @@
         <button id="deviceMetaClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
       </div>
       <div class="device-meta-form">
-        <label class="device-meta-field" for="deviceMetaShortName">
-          <span class="device-meta-label">Short Name <span class="device-meta-hint">(max 4 chars)</span></span>
-          <input id="deviceMetaShortName" type="text" maxlength="4" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="device-meta-field" for="deviceMetaLongName">
-          <span class="device-meta-label">Long Name</span>
-          <input id="deviceMetaLongName" type="text" maxlength="40" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="device-meta-field" for="deviceMetaLat">
-          <span class="device-meta-label">Latitude <span class="device-meta-hint">(optional)</span></span>
-          <input id="deviceMetaLat" type="number" step="any" placeholder="e.g. 55.7558">
-        </label>
-        <label class="device-meta-field" for="deviceMetaLon">
-          <span class="device-meta-label">Longitude <span class="device-meta-hint">(optional)</span></span>
-          <input id="deviceMetaLon" type="number" step="any" placeholder="e.g. 37.6173">
-        </label>
-        <label class="device-meta-field" for="deviceMetaTakChannel">
-          <span class="device-meta-label">TAK Channel <span class="device-meta-hint">(Meshtastic channel index 0-7)</span></span>
-          <input id="deviceMetaTakChannel" type="number" min="0" max="7" step="1" placeholder="0">
-        </label>
-        <label class="device-meta-field" for="deviceMetaTakHopLimit">
-          <span class="device-meta-label">TAK Hop Limit <span class="device-meta-hint">(0-7, usually 3)</span></span>
-          <input id="deviceMetaTakHopLimit" type="number" min="0" max="7" step="1" placeholder="3">
+        <div class="device-meta-row">
+          <label class="device-meta-field" for="deviceMetaShortName">
+            <span class="device-meta-label">Short Name</span>
+            <input id="deviceMetaShortName" type="text" maxlength="4" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="device-meta-field" for="deviceMetaLongName">
+            <span class="device-meta-label">Long Name</span>
+            <input id="deviceMetaLongName" type="text" maxlength="40" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        <div class="device-meta-row">
+          <label class="device-meta-field" for="deviceMetaLat">
+            <span class="device-meta-label">Latitude</span>
+            <input id="deviceMetaLat" type="number" step="any" placeholder="e.g. 55.7558">
+          </label>
+          <label class="device-meta-field" for="deviceMetaLon">
+            <span class="device-meta-label">Longitude</span>
+            <input id="deviceMetaLon" type="number" step="any" placeholder="e.g. 37.6173">
+          </label>
+        </div>
+        <div class="device-meta-row">
+          <label class="device-meta-field" for="deviceMetaTakChannel">
+            <span class="device-meta-label">TAK Channel</span>
+            <input id="deviceMetaTakChannel" type="number" min="0" max="7" step="1" placeholder="0">
+          </label>
+          <label class="device-meta-field" for="deviceMetaTakHopLimit">
+            <span class="device-meta-label">TAK Hop Limit</span>
+            <input id="deviceMetaTakHopLimit" type="number" min="0" max="7" step="1" placeholder="3">
+          </label>
+        </div>
+        <label class="device-meta-field" for="deviceMetaModemPreset">
+          <span class="device-meta-label">LoRa Modem Preset</span>
+          <select id="deviceMetaModemPreset">
+            <option value="LONG_FAST">LongFast</option>
+            <option value="LONG_SLOW">LongSlow</option>
+            <option value="VERY_LONG_SLOW">VeryLongSlow</option>
+            <option value="MEDIUM_FAST">MedFast</option>
+            <option value="MEDIUM_SLOW">MedSlow</option>
+            <option value="SHORT_FAST">ShortFast</option>
+            <option value="SHORT_SLOW">ShortSlow</option>
+            <option value="LONG_MODERATE">LongModerate</option>
+            <option value="SHORT_TURBO">ShortTurbo</option>
+            <option value="LONG_TURBO">LongTurbo</option>
+          </select>
         </label>
         <div id="deviceMetaStatus" class="device-status-text"></div>
         <button id="deviceMetaSave" type="button">Save to device</button>

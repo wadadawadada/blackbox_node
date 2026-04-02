@@ -44,16 +44,16 @@ const LLM_PORT = (() => {
   return Number.isInteger(env) && env > 0 ? env : 8080;
 })();
 const LLM_BASE_URL = `http://${LLM_HOST}:${LLM_PORT}`;
-const DEFAULT_MODEL_NAME = "Qwen2.5-0.5B-Instruct-Q3_K_M.gguf";
+const DEFAULT_MODEL_NAME = "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf";
 const CURATED_MODELS = [
   {
-    id: "qwen25-05b-q3km",
-    name: "Qwen2.5 0.5B Instruct Q3_K_M",
-    filename: "Qwen2.5-0.5B-Instruct-Q3_K_M.gguf",
-    url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q3_k_m.gguf?download=true",
-    sizeBytes: 318000000,
-    family: "Qwen",
-    notes: "Smallest practical Qwen chat option.",
+    id: "smollm2-135m-iq4xs",
+    name: "SmolLM2 135M Instruct IQ4_XS",
+    filename: "SmolLM2-135M-Instruct-IQ4_XS.gguf",
+    url: "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-IQ4_XS.gguf?download=true",
+    sizeBytes: 90897760,
+    family: "Pi Chat",
+    notes: "Tier XS | under 100 MB | emergency fallback for the weakest hardware.",
   },
   {
     id: "qwen25-05b-q4km",
@@ -61,107 +61,8 @@ const CURATED_MODELS = [
     filename: "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
     url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true",
     sizeBytes: 397808192,
-    family: "Qwen",
-    notes: "Fastest small local chat model.",
-  },
-  {
-    id: "qwen25-05b-q5km",
-    name: "Qwen2.5 0.5B Instruct Q5_K_M",
-    filename: "Qwen2.5-0.5B-Instruct-Q5_K_M.gguf",
-    url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q5_k_m.gguf?download=true",
-    sizeBytes: 447000000,
-    family: "Qwen",
-    notes: "Small model with slightly better quality than Q4_K_M.",
-  },
-  {
-    id: "qwen25-15b-q5km",
-    name: "Qwen2.5 1.5B Instruct Q5_K_M",
-    filename: "Qwen2.5-1.5B-Instruct-Q5_K_M.gguf",
-    url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q5_k_m.gguf?download=true",
-    sizeBytes: 1270000000,
-    family: "Qwen",
-    notes: "Balanced small model with better quality than 0.5B.",
-  },
-  {
-    id: "qwen25-15b-q4km",
-    name: "Qwen2.5 1.5B Instruct Q4_K_M",
-    filename: "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
-    url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true",
-    sizeBytes: 1010000000,
-    family: "Qwen",
-    notes: "Smaller disk and RAM footprint than the Q5 build.",
-  },
-  {
-    id: "qwen25-3b-q5km",
-    name: "Qwen2.5 3B Instruct Q5_K_M",
-    filename: "Qwen2.5-3B-Instruct-Q5_K_M.gguf",
-    url: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q5_k_m.gguf?download=true",
-    sizeBytes: 2438740384,
-    family: "Qwen",
-    notes: "Current recommended general-purpose local model.",
-  },
-  {
-    id: "qwen25-3b-q4km",
-    name: "Qwen2.5 3B Instruct Q4_K_M",
-    filename: "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
-    url: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf?download=true",
-    sizeBytes: 2120000000,
-    family: "Qwen",
-    notes: "Compact 3B option if Q5 is too heavy.",
-  },
-  {
-    id: "qwen25-coder-05b-q4km",
-    name: "Qwen2.5 Coder 0.5B Instruct Q4_K_M",
-    filename: "qwen2.5-0.5b-coder-instruct-q4_k_m.gguf",
-    url: "https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-coder-instruct-q4_k_m.gguf?download=true",
-    sizeBytes: 491000000,
-    family: "Qwen Coder",
-    notes: "Tiny coding-focused model for weak machines.",
-  },
-  {
-    id: "qwen25-coder-15b-q5km",
-    name: "Qwen2.5 Coder 1.5B Instruct Q5_K_M",
-    filename: "Qwen2.5-Coder-1.5B-Instruct.Q5_K_M.gguf",
-    url: "https://huggingface.co/MaziyarPanahi/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-1.5B-Instruct.Q5_K_M.gguf?download=true",
-    sizeBytes: 1130000000,
-    family: "Qwen Coder",
-    notes: "Compact coding model with better reasoning than 0.5B.",
-  },
-  {
-    id: "qwen25-coder-3b-q4km",
-    name: "Qwen2.5 Coder 3B Instruct Q4_K_M",
-    filename: "qwen2.5-3b-coder-instruct-q4_k_m.gguf",
-    url: "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-coder-instruct-q4_k_m.gguf?download=true",
-    sizeBytes: 2100000000,
-    family: "Qwen Coder",
-    notes: "Better fit for code-heavy local chat and debugging.",
-  },
-  {
-    id: "smollm2-135m-iq4xs",
-    name: "SmolLM2 135M Instruct IQ4_XS",
-    filename: "SmolLM2-135M-Instruct-IQ4_XS.gguf",
-    url: "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-IQ4_XS.gguf?download=true",
-    sizeBytes: 90897760,
-    family: "SmolLM",
-    notes: "Ultra-small fallback model.",
-  },
-  {
-    id: "smollm2-135m-q3km",
-    name: "SmolLM2 135M Instruct Q3_K_M",
-    filename: "SmolLM2-135M-Instruct-Q3_K_M.gguf",
-    url: "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q3_K_M.gguf?download=true",
-    sizeBytes: 94000000,
-    family: "SmolLM",
-    notes: "Absolute minimum-size chat model in the catalog.",
-  },
-  {
-    id: "smollm2-360m-q4km",
-    name: "SmolLM2 360M Instruct Q4_K_M",
-    filename: "SmolLM2-360M-Instruct-Q4_K_M.gguf",
-    url: "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf?download=true",
-    sizeBytes: 244000000,
-    family: "SmolLM",
-    notes: "Still lightweight, but much more usable than 135M.",
+    family: "Pi Chat",
+    notes: "Tier S | about 400 MB | best default balance of speed and quality for compact devices.",
   },
   {
     id: "tinyllama-11b-q4km",
@@ -169,8 +70,35 @@ const CURATED_MODELS = [
     filename: "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
     url: "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf?download=true",
     sizeBytes: 670000000,
-    family: "TinyLlama",
-    notes: "Very small general chat model that is still reasonably usable.",
+    family: "Pi Chat",
+    notes: "Tier M | about 670 MB | lightweight chat model that feels more capable than sub-500M options.",
+  },
+  {
+    id: "smollm2-17b-q4km",
+    name: "SmolLM2 1.7B Instruct Q4_K_M",
+    filename: "SmolLM2-1.7B-Instruct-Q4_K_M.gguf",
+    url: "https://huggingface.co/bartowski/SmolLM2-1.7B-Instruct-GGUF/resolve/main/SmolLM2-1.7B-Instruct-Q4_K_M.gguf?download=true",
+    sizeBytes: 1055609824,
+    family: "Pi Chat",
+    notes: "Tier L | about 1.1 GB | stronger small-chat option for constrained hardware.",
+  },
+  {
+    id: "qwen25-3b-q4km",
+    name: "Qwen2.5 3B Instruct Q4_K_M",
+    filename: "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+    url: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf?download=true",
+    sizeBytes: 2120000000,
+    family: "Pi Chat",
+    notes: "Tier XL | about 2.1 GB | strongest practical general chat model in this compact catalog.",
+  },
+  {
+    id: "qwen25-coder-05b-q4km",
+    name: "Qwen2.5 Coder 0.5B Instruct Q4_K_M",
+    filename: "Qwen2.5-Coder-0.5B-Instruct-Q4_K_M.gguf",
+    url: "https://huggingface.co/bartowski/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-0.5B-Instruct-Q4_K_M.gguf?download=true",
+    sizeBytes: 397808288,
+    family: "Pi Coder",
+    notes: "Tier S | about 400 MB | smallest genuinely useful coding model for weak hardware.",
   },
   {
     id: "deepseek-coder-13b-q4km",
@@ -178,8 +106,17 @@ const CURATED_MODELS = [
     filename: "deepseek-coder-1.3b-instruct.Q4_K_M.gguf",
     url: "https://huggingface.co/TheBloke/deepseek-coder-1.3b-instruct-GGUF/resolve/main/deepseek-coder-1.3b-instruct.Q4_K_M.gguf?download=true",
     sizeBytes: 813000000,
-    family: "DeepSeek Coder",
-    notes: "Small dedicated code model with solid code completion quality.",
+    family: "Pi Coder",
+    notes: "Tier M | about 800 MB | better code completion while still manageable on compact hardware.",
+  },
+  {
+    id: "qwen25-coder-15b-q5km",
+    name: "Qwen2.5 Coder 1.5B Instruct Q5_K_M",
+    filename: "Qwen2.5-Coder-1.5B-Instruct.Q5_K_M.gguf",
+    url: "https://huggingface.co/MaziyarPanahi/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-1.5B-Instruct.Q5_K_M.gguf?download=true",
+    sizeBytes: 1130000000,
+    family: "Pi Coder",
+    notes: "Tier L | about 1.1 GB | compact coding model with noticeably better reasoning than 0.5B.",
   },
   {
     id: "stable-code-3b-q4km",
@@ -187,26 +124,44 @@ const CURATED_MODELS = [
     filename: "stable-code-3b.Q4_K_M.gguf",
     url: "https://huggingface.co/TheBloke/stable-code-3b-GGUF/resolve/main/stable-code-3b.Q4_K_M.gguf?download=true",
     sizeBytes: 1710000000,
-    family: "Stable Code",
-    notes: "Code-specialized 3B model for programming tasks.",
+    family: "Pi Coder",
+    notes: "Tier XL | about 1.7 GB | stronger code-specialized option when you can spare more RAM.",
   },
   {
-    id: "mistral-7b-v03-q4km",
-    name: "Mistral 7B Instruct v0.3 Q4_K_M",
-    filename: "mistral-7b-instruct-v0.3.Q4_K_M.gguf",
-    url: "https://huggingface.co/SanctumAI/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/mistral-7b-instruct-v0.3.Q4_K_M.gguf?download=true",
-    sizeBytes: 4370000000,
-    family: "Mistral",
-    notes: "Heavier but stronger instruction model.",
+    id: "qwen25-coder-3b-q4km",
+    name: "Qwen2.5 Coder 3B Instruct Q4_K_M",
+    filename: "Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf",
+    url: "https://huggingface.co/bartowski/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-3B-Instruct-Q4_K_M.gguf?download=true",
+    sizeBytes: 1929903360,
+    family: "Pi Coder",
+    notes: "Tier XXL | about 1.9 GB | best coding model in this catalog before moving into heavy desktop-class sizes.",
   },
   {
-    id: "mistral-7b-v03-q5km",
-    name: "Mistral 7B Instruct v0.3 Q5_K_M",
-    filename: "mistral-7b-instruct-v0.3.Q5_K_M.gguf",
-    url: "https://huggingface.co/SanctumAI/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/mistral-7b-instruct-v0.3.Q5_K_M.gguf?download=true",
-    sizeBytes: 5140000000,
+    id: "deepseek-r1-qwen-15b-q4km",
+    name: "DeepSeek R1 Distill Qwen 1.5B Q4_K_M",
+    filename: "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+    url: "https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf?download=true",
+    sizeBytes: 1117320800,
+    family: "DeepSeek",
+    notes: "Tier L | about 1.1 GB | compact reasoning-oriented DeepSeek for constrained hardware.",
+  },
+  {
+    id: "mistral-7b-v03-q3km",
+    name: "Mistral 7B Instruct v0.3 Q3_K_M",
+    filename: "mistral-7b-instruct-v0.3.Q3_K_M.gguf",
+    url: "https://huggingface.co/SanctumAI/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/mistral-7b-instruct-v0.3.Q3_K_M.gguf?download=true",
+    sizeBytes: 3522940864,
     family: "Mistral",
-    notes: "Higher-quality Mistral build if you can spare the RAM.",
+    notes: "Tier M1 | about 3.5 GB | entry point into real Mistral models on compact systems.",
+  },
+  {
+    id: "ministral-8b-q4km",
+    name: "Ministral 8B Instruct 2410 Q4_K_M",
+    filename: "Ministral-8B-Instruct-2410-Q4_K_M.gguf",
+    url: "https://huggingface.co/bartowski/Ministral-8B-Instruct-2410-GGUF/resolve/main/Ministral-8B-Instruct-2410-Q4_K_M.gguf?download=true",
+    sizeBytes: 4911500096,
+    family: "Mistral",
+    notes: "Tier M2 | about 4.9 GB | newer Mistral-family instruct model with a good quality-to-size tradeoff.",
   },
 ];
 const HISTORY_LIMIT = 8;
@@ -264,6 +219,7 @@ let modelManagerOperation = {
   modelId: null,
   modelName: null,
   error: null,
+  cancelling: false,
   progress: 0,
   bytesDownloaded: 0,
   bytesTotal: 0,
@@ -2448,6 +2404,7 @@ function makeNodeSnapshotSignature(node) {
     node?.longName ?? "",
     node?.hardware ?? "",
     node?.meshtasticRole ?? "",
+    node?.modemPreset ?? "",
     node?.lastHeard ?? "",
     node?.snr ?? "",
     node?.hopsAway ?? "",
@@ -2557,6 +2514,7 @@ function mergeBridgeNodes(nodes) {
       longName: bridgeNode.longName || existing.longName || "",
       hardware: bridgeNode.hardware || existing.hardware || "",
       meshtasticRole: bridgeNode.meshtasticRole || existing.meshtasticRole || "",
+      modemPreset: bridgeNode.modemPreset || existing.modemPreset || "",
       lastHeard: bridgeNode.lastHeard || existing.lastHeard || null,
       snr: bridgeNode.snr ?? existing.snr ?? null,
       hopsAway: bridgeNode.hopsAway ?? existing.hopsAway ?? null,
@@ -3388,11 +3346,12 @@ function getModelManagerUiStyle() {
 .model-manager-grid .modal-section:last-child{display:none!important}
 .model-manager-grid .modal-section{padding:6px!important}
 .model-manager-list.compact-list{display:grid;gap:8px;align-content:start}
-.model-card.compact{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 12px}
+.model-card.compact{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;position:relative;overflow:hidden;padding:10px 12px 10px 18px}
 .model-card.compact.installed{background:linear-gradient(90deg,#26372d 0%,#213129 100%)}
 .model-card.compact.installable{background:#20242a}
+.model-card.compact::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--model-accent,#6a7a8a);box-shadow:inset -1px 0 0 rgba(0,0,0,.35)}
 .model-card.compact.downloading{position:relative;overflow:hidden}
-.model-card.compact.downloading::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(72,153,95,.55) 0%,rgba(72,153,95,.35) 100%);transform-origin:left center;transform:scaleX(var(--download-progress,0));pointer-events:none}
+.model-card.compact.downloading::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(72,153,95,.55) 0%,rgba(72,153,95,.35) 100%);transform-origin:left center;transform:scaleX(var(--download-progress,0));pointer-events:none}
 .model-card.compact > *{position:relative;z-index:1}
 .model-card.compact .model-card-head{display:grid;gap:5px;min-width:0}
 .model-card.compact .model-card-title{font-size:12px;line-height:1.35}
@@ -3410,12 +3369,13 @@ function getModelManagerUiStyle() {
 function getModelManagerUiScript() {
   return `(() => {
   const stylesId = "compact-model-manager-style";
-  if (!document.getElementById(stylesId)) {
-    const style = document.createElement("style");
+  let style = document.getElementById(stylesId);
+  if (!style) {
+    style = document.createElement("style");
     style.id = stylesId;
-    style.textContent = ${JSON.stringify(getModelManagerUiStyle())};
     document.head.appendChild(style);
   }
+  style.textContent = ${JSON.stringify(getModelManagerUiStyle())};
 
   const installedList = document.getElementById("installedModelsList");
   const catalogList = document.getElementById("catalogModelsList");
@@ -3457,6 +3417,36 @@ function getModelManagerUiScript() {
     return node;
   }
 
+  function accent(model) {
+    const haystack = [model?.family, model?.name, model?.filename]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    if (haystack.includes("deepseek")) return "#4a9eff";
+    if (haystack.includes("mistral") || haystack.includes("ministral")) return "#ff9a3c";
+    if (haystack.includes("qwen")) return "#39c78d";
+    if (haystack.includes("smollm")) return "#b8ef4e";
+    if (haystack.includes("tinyllama") || haystack.includes("llama")) return "#ff6b57";
+    if (haystack.includes("stable code") || haystack.includes("stable-code")) return "#b18cff";
+    return "#6a7a8a";
+  }
+
+  function groupRank(model) {
+    const haystack = [model?.family, model?.name, model?.filename]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    if (haystack.includes("deepseek")) return 0;
+    if (haystack.includes("mistral") || haystack.includes("ministral")) return 1;
+    if (haystack.includes("qwen")) return 2;
+    if (haystack.includes("smollm")) return 3;
+    if (haystack.includes("tinyllama") || haystack.includes("llama")) return 4;
+    if (haystack.includes("stable code") || haystack.includes("stable-code")) return 5;
+    return 9;
+  }
+
   function allModels(payload) {
     const installed = Array.isArray(payload?.installed) ? payload.installed : [];
     const available = Array.isArray(payload?.available) ? payload.available.filter((model) => !model.installed) : [];
@@ -3465,6 +3455,10 @@ function getModelManagerUiScript() {
       if (installedDiff !== 0) return installedDiff;
       const currentDiff = Number(Boolean(b.current)) - Number(Boolean(a.current));
       if (currentDiff !== 0) return currentDiff;
+      const groupDiff = groupRank(a) - groupRank(b);
+      if (groupDiff !== 0) return groupDiff;
+      const sizeDiff = Number(a?.sizeBytes || 0) - Number(b?.sizeBytes || 0);
+      if (sizeDiff !== 0) return sizeDiff;
       return String(a.name || a.filename || "").localeCompare(String(b.name || b.filename || ""));
     });
   }
@@ -3487,6 +3481,7 @@ function getModelManagerUiScript() {
     for (const model of models) {
       const card = document.createElement("article");
       card.className = "model-card compact " + (model.installed ? "installed" : "installable");
+      card.style.setProperty("--model-accent", accent(model));
       const isDownloading = operation.active && operation.action === "install" && operation.modelName === model.filename;
       if (isDownloading) {
         const progress = Math.max(0, Math.min(100, Number(operation.progress || 0)));
@@ -3504,7 +3499,7 @@ function getModelManagerUiScript() {
       const tags = document.createElement("div");
       tags.className = "model-card-tags";
       if (model.current) tags.appendChild(tag("Current", "current"));
-      tags.appendChild(tag(model.installed ? "Installed" : "Available", model.installed ? "installed" : "available"));
+      if (model.installed) tags.appendChild(tag("Installed", "installed"));
 
       if (model.notes) {
         const notes = document.createElement("div");
@@ -3528,6 +3523,7 @@ function getModelManagerUiScript() {
       const actions = document.createElement("div");
       actions.className = "model-actions";
       const busy = Boolean(operation.active);
+      const isCancelling = Boolean(operation.cancelling);
 
       if (model.installed) {
         if (!model.current) {
@@ -3580,8 +3576,9 @@ function getModelManagerUiScript() {
         if (isDownloading) {
           const cancelButton = document.createElement("button");
           cancelButton.type = "button";
-          cancelButton.textContent = "Cancel";
+          cancelButton.textContent = isCancelling ? "Cancelling..." : "Cancel";
           cancelButton.className = "danger";
+          cancelButton.disabled = isCancelling;
           cancelButton.addEventListener("click", async () => {
             try {
               const response = await fetch("/api/models/cancel", {
@@ -3624,7 +3621,11 @@ function getModelManagerUiScript() {
         statusLabel.textContent = operation.active
           ? (
             operation.action === "install"
-              ? ("Installing " + (operation.modelName || operation.modelId || "model") + " (" + fmtProgress(Number(operation.bytesDownloaded || 0), Number(operation.bytesTotal || 0), Math.max(0, Math.min(100, Number(operation.progress || 0)))) + ")")
+              ? (
+                operation.cancelling
+                  ? ("Cancelling " + (operation.modelName || operation.modelId || "model") + "...")
+                  : ("Installing " + (operation.modelName || operation.modelId || "model") + " (" + fmtProgress(Number(operation.bytesDownloaded || 0), Number(operation.bytesTotal || 0), Math.max(0, Math.min(100, Number(operation.progress || 0)))) + ")")
+              )
               : ("Deleting " + (operation.modelName || operation.modelId || "model") + "...")
           )
           : (operation.error || "");
@@ -4294,6 +4295,7 @@ function installModel(modelId) {
     modelId: curated.id,
     modelName: curated.filename,
     error: null,
+    cancelling: false,
     progress: 0,
     bytesDownloaded: 0,
     bytesTotal: curated.sizeBytes || 0,
@@ -4306,8 +4308,10 @@ function installModel(modelId) {
     transport: "system",
   });
 
+  const abortController = new AbortController();
+  modelDownloadAbortController = abortController;
+
   (async () => {
-    modelDownloadAbortController = new AbortController();
     try {
       let lastProgressEmitAt = 0;
       await downloadModelFile(curated.url, tempPath, (downloaded, total) => {
@@ -4333,6 +4337,7 @@ function installModel(modelId) {
       updateModelManagerOperation({
         active: false,
         error: null,
+        cancelling: false,
         progress: 100,
         bytesDownloaded: curated.sizeBytes || 0,
         bytesTotal: curated.sizeBytes || 0,
@@ -4355,6 +4360,7 @@ function installModel(modelId) {
       updateModelManagerOperation({
         active: false,
         error: wasCancelled ? "Install cancelled" : `Install failed: ${error.message}`,
+        cancelling: false,
         progress: 0,
         bytesDownloaded: 0,
         bytesTotal: 0,
@@ -4384,6 +4390,10 @@ function cancelModelInstall() {
   if (!modelManagerOperation.active || modelManagerOperation.action !== "install" || !modelDownloadAbortController) {
     throw new Error("No model download is currently active");
   }
+  updateModelManagerOperation({
+    cancelling: true,
+    error: null,
+  });
   modelDownloadAbortController.abort();
   return { ok: true, cancelled: true, model: modelManagerOperation.modelName };
 }
@@ -4866,6 +4876,7 @@ const server = http.createServer(async (req, res) => {
         longName: localNode?.longName || "",
         latitude: localNode?.latitude ?? null,
         longitude: localNode?.longitude ?? null,
+        modemPreset: localNode?.modemPreset || "LONG_FAST",
         takChannel: getConfiguredTakChannel(),
         takHopLimit: getConfiguredTakHopLimit(),
       });
