@@ -3342,11 +3342,11 @@ function listMeshtasticPorts() {
 function getModelManagerUiStyle() {
   return `.model-manager-panel{width:min(860px,calc(100vw - 72px))!important;max-width:860px!important}
 .model-manager-status{display:none!important}
-.model-manager-grid{grid-template-columns:minmax(0,1fr)!important;gap:8px!important}
+.model-manager-grid{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important;gap:8px!important;min-height:0!important;height:100%!important;overflow:hidden!important}
 .model-manager-grid .modal-section:last-child{display:none!important}
-.model-manager-grid .modal-section{padding:6px!important}
-.model-manager-list.compact-list{display:grid;gap:8px;align-content:start}
-.model-card.compact{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;position:relative;overflow:hidden;padding:10px 12px 10px 18px}
+.model-manager-grid .modal-section{display:grid!important;grid-template-rows:auto minmax(0,1fr)!important;min-height:0!important;overflow:hidden!important;padding:6px!important}
+.model-manager-list.compact-list{display:flex!important;flex-direction:column;gap:8px;min-height:0!important;overflow-y:auto!important;padding-right:2px}
+.model-card.compact{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;position:relative;overflow:hidden;min-height:72px;padding:10px 10px 12px 16px}
 .model-card.compact.installed{background:linear-gradient(90deg,#26372d 0%,#213129 100%)}
 .model-card.compact.installable{background:#20242a}
 .model-card.compact::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--model-accent,#6a7a8a);box-shadow:inset -1px 0 0 rgba(0,0,0,.35)}
@@ -3388,6 +3388,7 @@ function getModelManagerUiScript() {
   if (managerTitle) {
     managerTitle.textContent = "Models";
   }
+  let pinnedModelId = "";
 
   function fmtBytes(bytes) {
     const value = Number(bytes || 0);
@@ -3415,6 +3416,33 @@ function getModelManagerUiScript() {
     node.className = "model-tag " + (extraClass || "");
     node.textContent = label;
     return node;
+  }
+
+  function modelKey(model) {
+    return String(model?.filename || model?.id || "");
+  }
+
+  function findCardByModelId(root, modelId) {
+    if (!root || !modelId) {
+      return null;
+    }
+    return Array.from(root.querySelectorAll("[data-model-id]"))
+      .find((card) => card.dataset.modelId === String(modelId)) || null;
+  }
+
+  function keepCardVisible(container, card) {
+    if (!container || !card) {
+      return;
+    }
+    const top = container.scrollTop;
+    const bottom = top + container.clientHeight;
+    const cardTop = card.offsetTop;
+    const cardBottom = cardTop + card.offsetHeight;
+    if (cardTop < top) {
+      container.scrollTop = cardTop;
+    } else if (cardBottom > bottom) {
+      container.scrollTop = Math.max(0, cardBottom - container.clientHeight);
+    }
   }
 
   function accent(model) {
@@ -3463,13 +3491,19 @@ function getModelManagerUiScript() {
     });
   }
 
-  function rerender(payload) {
+  function rerender(payload, options = {}) {
     if (!window.installModelFromManager || !window.selectModelFromManager || !window.deleteModelFromManager || !window.loadModelManager) {
       return false;
     }
 
     const operation = payload?.operation || {};
     const models = allModels(payload);
+    const savedScrollTop = Number.isFinite(Number(options.scrollTop))
+      ? Number(options.scrollTop)
+      : installedList.scrollTop;
+    const activeModelId = operation.active
+      ? String(operation.modelName || operation.modelId || pinnedModelId || "")
+      : "";
     installedList.innerHTML = "";
     catalogList.innerHTML = "";
 
@@ -3481,6 +3515,7 @@ function getModelManagerUiScript() {
     for (const model of models) {
       const card = document.createElement("article");
       card.className = "model-card compact " + (model.installed ? "installed" : "installable");
+      card.dataset.modelId = modelKey(model);
       card.style.setProperty("--model-accent", accent(model));
       const isDownloading = operation.active && operation.action === "install" && operation.modelName === model.filename;
       if (isDownloading) {
@@ -3563,6 +3598,7 @@ function getModelManagerUiScript() {
         installButton.textContent = "Install";
         installButton.disabled = busy;
         installButton.addEventListener("click", async () => {
+          pinnedModelId = modelKey(model);
           try {
             await window.installModelFromManager(model.id);
             await window.loadModelManager();
@@ -3580,6 +3616,7 @@ function getModelManagerUiScript() {
           cancelButton.className = "danger";
           cancelButton.disabled = isCancelling;
           cancelButton.addEventListener("click", async () => {
+            pinnedModelId = modelKey(model);
             try {
               const response = await fetch("/api/models/cancel", {
                 method: "POST",
@@ -3603,6 +3640,12 @@ function getModelManagerUiScript() {
       card.append(head, actions);
       installedList.appendChild(card);
     }
+    installedList.scrollTop = savedScrollTop;
+    if (activeModelId) {
+      requestAnimationFrame(() => {
+        keepCardVisible(installedList, findCardByModelId(installedList, activeModelId));
+      });
+    }
     return true;
   }
 
@@ -3614,6 +3657,7 @@ function getModelManagerUiScript() {
 
     const original = window.renderModelManager;
     window.renderModelManager = function patchedRenderModelManager(payload) {
+      const previousScrollTop = installedList.scrollTop;
       original(payload);
       const statusLabel = document.getElementById("modelManagerStatusText");
       if (statusLabel) {
@@ -3630,7 +3674,7 @@ function getModelManagerUiScript() {
           )
           : (operation.error || "");
       }
-      rerender(payload);
+      rerender(payload, { scrollTop: previousScrollTop });
     };
 
     if (window.latestModelManagerPayload) {

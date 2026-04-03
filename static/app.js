@@ -264,6 +264,7 @@ const walletViewPanels = {
 let currentSelectedModel = "";
 const LOCAL_CHAT_PEER_ID = "local-ui-user";
 let latestModelManagerPayload = null;
+let modelManagerOperationActive = false;
 let latestAiSettingsPayload = null;
 let swapLnPollInterval = null;
 let showingDonateView = false;
@@ -272,6 +273,7 @@ let latestMessages = [];
 let latestNodes = [];
 let latestMeshLinks = [];
 const unreadPeers = new Set(); // peer IDs with unread incoming messages
+let lastUnreadPeer = ""; // most recently received unread DM sender
 const HELP_MODAL_TITLE_DEFAULT = "About BLACKBOX NODE";
 const HELP_MODAL_TITLE_DONATE = "DONATE";
 const CHAT_MODE_AI = "ai";
@@ -291,12 +293,12 @@ const chatState = {
   selectedPeer: readStoredChatPeer(),
   channels: readStoredChatChannels(),
   selectedChannel: readStoredChatChannel(),
-  localExchange: null,
+  localHistory: [],
   dmLoadingPeer: "",
   peerFilters: {
     unread: false,
     active: false,
-    online: false,
+    online: true,
   },
 };
 const cashuState = {
@@ -631,14 +633,31 @@ function populateNodeSelect(selectEl, preferredValue = "") {
   }
   const selectedBefore = preferredValue || selectEl.value || "";
   const nodes = getSelectableNodes();
+  const online = nodes.filter((n) => n.online);
+  const offline = nodes.filter((n) => !n.online);
   selectEl.innerHTML = '<option value="">Select node</option>';
-  nodes.forEach((node) => {
-    const option = document.createElement("option");
-    const address = getNodeAddress(node);
-    option.value = address;
-    option.textContent = getNodeDisplayLabel(node);
-    selectEl.appendChild(option);
-  });
+  if (online.length) {
+    const group = document.createElement("optgroup");
+    group.label = "Online";
+    online.forEach((node) => {
+      const option = document.createElement("option");
+      option.value = getNodeAddress(node);
+      option.textContent = getNodeDisplayLabel(node);
+      group.appendChild(option);
+    });
+    selectEl.appendChild(group);
+  }
+  if (offline.length) {
+    const group = document.createElement("optgroup");
+    group.label = "Offline";
+    offline.forEach((node) => {
+      const option = document.createElement("option");
+      option.value = getNodeAddress(node);
+      option.textContent = getNodeDisplayLabel(node);
+      group.appendChild(option);
+    });
+    selectEl.appendChild(group);
+  }
   const hasSelected = Array.from(selectEl.options).some((option) => option.value === selectedBefore);
   selectEl.value = hasSelected ? selectedBefore : "";
 }
@@ -713,12 +732,21 @@ function renderChatPeerList() {
   if (chatPeerLabel) {
     chatPeerLabel.textContent = activeNode ? getNodeDisplayLabel(activeNode) : "Select node";
   }
+  updateChatPeerTriggerUnread();
 }
 
 function updateDmTabUnreadGlow() {
   if (!chatModeDmButton) return;
   const hasAny = unreadPeers.size > 0 && chatState.mode !== CHAT_MODE_DM;
   chatModeDmButton.classList.toggle("has-unread", hasAny);
+  updateChatPeerTriggerUnread();
+}
+
+function updateChatPeerTriggerUnread() {
+  const indicator = document.getElementById("chatPeerTriggerUnread");
+  if (!indicator) return;
+  const peers = [...unreadPeers].filter((p) => p !== chatState.selectedPeer);
+  indicator.hidden = peers.length === 0;
 }
 
 function populateChatChannelSelect() {
@@ -848,26 +876,41 @@ function formatChatTime(value) {
   return date.toLocaleTimeString();
 }
 
-function renderLocalChat(userText, replyText) {
-  const safeReply = replyText || "No reply";
-  chatState.localExchange = { userText, replyText: safeReply };
+function renderLocalChatHistory() {
   chatReplyText.innerHTML = "";
+  chatState.localHistory.forEach(({ userText, replyText }) => {
+    const userBubble = document.createElement("div");
+    userBubble.className = "chat-bubble user";
+    userBubble.textContent = userText;
+    chatReplyText.appendChild(userBubble);
 
-  const userBubble = document.createElement("div");
-  userBubble.className = "chat-bubble user";
-  userBubble.textContent = userText;
-
-  const aiBubble = document.createElement("div");
-  aiBubble.className = "chat-bubble ai";
-  aiBubble.textContent = safeReply;
-
-  chatReplyText.appendChild(userBubble);
-  chatReplyText.appendChild(aiBubble);
+    const aiBubble = document.createElement("div");
+    if (replyText === null) {
+      aiBubble.className = "chat-bubble ai chat-bubble--loader";
+      aiBubble.innerHTML = '<span class="llm-loader"><span></span><span></span><span></span></span>';
+    } else {
+      aiBubble.className = "chat-bubble ai";
+      aiBubble.textContent = replyText;
+    }
+    chatReplyText.appendChild(aiBubble);
+  });
   chatReplyText.scrollTop = chatReplyText.scrollHeight;
 }
 
+function renderLocalChat(userText, replyText) {
+  const safeReply = replyText || "No reply";
+  const last = chatState.localHistory[chatState.localHistory.length - 1];
+  if (last && last.userText === userText && last.replyText === null) {
+    last.replyText = safeReply;
+  } else {
+    chatState.localHistory.push({ userText, replyText: safeReply });
+  }
+  renderLocalChatHistory();
+}
+
 function renderPendingLocalChat(userText) {
-  renderLocalChat(userText, "Thinking...");
+  chatState.localHistory.push({ userText, replyText: null });
+  renderLocalChatHistory();
 }
 
 async function clearActiveChat() {
@@ -902,17 +945,17 @@ async function clearActiveChat() {
     method: "POST",
     body: JSON.stringify({ scope: "local" }),
   });
-  chatState.localExchange = null;
+  chatState.localHistory = [];
   renderLocalChatFromState();
   await loadMessages();
 }
 
 function renderLocalChatFromState() {
-  if (!chatState.localExchange) {
+  if (!chatState.localHistory.length) {
     renderChatEmpty("Write a prompt to test the offline model.");
     return;
   }
-  renderLocalChat(chatState.localExchange.userText, chatState.localExchange.replyText);
+  renderLocalChatHistory();
 }
 
 function isPeerDmMessage(message, peerId) {
@@ -961,11 +1004,15 @@ function isIncomingDmMessage(message) {
   if (!message || String(message.direction || "") !== "in") {
     return false;
   }
+  const sender = String(message.sender || "").trim();
+  if (!sender || sender === "local-ui-user" || sender === "local-ai") {
+    return false;
+  }
   const hasDirectFlag = Object.hasOwn(message, "isDirectMessage");
   const isDirectMessage = hasDirectFlag
     ? Boolean(message.isDirectMessage)
     : String(message.recipient || "") === "local-ai";
-  return isDirectMessage && Boolean(String(message.sender || "").trim());
+  return isDirectMessage;
 }
 
 function normalizeIncomingCashuTokenInput(rawInput) {
@@ -1439,6 +1486,25 @@ function applyModelCardAccent(card, model = {}) {
   card.style.setProperty("--model-accent", getModelCardAccent(model));
 }
 
+function findModelCardById(list, modelId) {
+  if (!list || !modelId) return null;
+  return Array.from(list.querySelectorAll("[data-model-id]"))
+    .find((card) => card.dataset.modelId === String(modelId)) || null;
+}
+
+function keepModelCardVisible(list, card) {
+  if (!list || !card) return;
+  const listTop = list.scrollTop;
+  const listBottom = listTop + list.clientHeight;
+  const cardTop = card.offsetTop;
+  const cardBottom = cardTop + card.offsetHeight;
+  if (cardTop < listTop) {
+    list.scrollTop = cardTop;
+  } else if (cardBottom > listBottom) {
+    list.scrollTop = Math.max(0, cardBottom - list.clientHeight);
+  }
+}
+
 async function selectModelFromManager(filename) {
   await fetchJson("/api/models/select", {
     method: "POST",
@@ -1472,6 +1538,7 @@ function renderInstalledModels(models = [], operation = {}) {
   models.forEach((model) => {
     const card = document.createElement("article");
     card.className = "model-card";
+    card.dataset.modelId = model.filename || model.id || "";
     applyModelCardAccent(card, model);
 
     const head = document.createElement("div");
@@ -1552,7 +1619,8 @@ function renderCatalogModels(models = [], operation = {}) {
 
   installable.forEach((model) => {
     const card = document.createElement("article");
-    card.className = "model-card";
+    card.className = "model-card model-card--catalog";
+    card.dataset.modelId = model.filename || model.id || "";
     applyModelCardAccent(card, model);
 
     const head = document.createElement("div");
@@ -1564,7 +1632,9 @@ function renderCatalogModels(models = [], operation = {}) {
     title.textContent = model.name;
     const meta = document.createElement("div");
     meta.className = "model-card-meta";
-    meta.textContent = `${model.filename} | ${formatBytes(model.sizeBytes)} | ${model.family}`;
+    const metaParts = [model.filename, formatBytes(model.sizeBytes), model.family];
+    if (model.notes) metaParts.push(model.notes);
+    meta.textContent = metaParts.join(" | ");
     titleWrap.appendChild(title);
     titleWrap.appendChild(meta);
 
@@ -1574,23 +1644,15 @@ function renderCatalogModels(models = [], operation = {}) {
     head.appendChild(tags);
     card.appendChild(head);
 
-    if (model.notes) {
-      const notes = document.createElement("div");
-      notes.className = "model-card-meta";
-      notes.textContent = model.notes;
-      card.appendChild(notes);
-    }
-
     const actions = document.createElement("div");
     actions.className = "model-actions";
     const installButton = document.createElement("button");
     installButton.type = "button";
     installButton.textContent = "Install";
-    installButton.disabled = Boolean(operation.active);
+    if (operation.active) installButton.style.display = "none";
     installButton.addEventListener("click", async () => {
       try {
         await installModelFromManager(model.id);
-        await loadModelManager();
       } catch (error) {
         modelManagerStatusText.textContent = `Install failed: ${error.message}`;
       }
@@ -1604,6 +1666,7 @@ function renderCatalogModels(models = [], operation = {}) {
 function renderModelManager(payload) {
   latestModelManagerPayload = payload;
   const operation = payload?.operation || {};
+  const activeId = operation.modelName || operation.modelId || "";
   if (operation.active) {
     modelManagerStatusText.textContent = `${operation.action === "install" ? "Installing" : "Deleting"} ${operation.modelName || operation.modelId || "model"}...`;
   } else if (operation.error) {
@@ -1612,8 +1675,20 @@ function renderModelManager(payload) {
     modelManagerStatusText.textContent = `Current model: ${payload?.currentModel || "n/a"}`;
   }
 
+  const installedScroll = installedModelsList.scrollTop;
+  const catalogScroll = catalogModelsList.scrollTop;
   renderInstalledModels(payload?.installed || [], operation);
   renderCatalogModels(payload?.available || [], operation);
+  modelManagerOperationActive = Boolean(operation.active);
+  installedModelsList.scrollTop = installedScroll;
+  catalogModelsList.scrollTop = catalogScroll;
+
+  if (operation.active && activeId) {
+    requestAnimationFrame(() => {
+      keepModelCardVisible(installedModelsList, findModelCardById(installedModelsList, activeId));
+      keepModelCardVisible(catalogModelsList, findModelCardById(catalogModelsList, activeId));
+    });
+  }
 }
 
 async function loadModelManager() {
@@ -5013,13 +5088,35 @@ function renderModelStatus(llm) {
     : (llm.error || llm.health?.error || `Model: ${currentModel || "n/a"}`);
 }
 
+function rebuildLocalHistory(messages) {
+  const userMsgs = messages.filter(
+    (m) => String(m.sender || "") === "local-ui-user" && String(m.recipient || "") === "local-ai"
+  );
+  const aiMsgs = messages.filter(
+    (m) => String(m.sender || "") === "local-ai" && String(m.recipient || "") === "local-ui-user"
+  );
+  const history = [];
+  userMsgs.forEach((userMsg, i) => {
+    const aiMsg = aiMsgs[i];
+    history.push({
+      userText: String(userMsg.text || ""),
+      replyText: aiMsg ? String(aiMsg.text || "") : null,
+    });
+  });
+  return history;
+}
+
 async function loadMessages() {
+  if (chatState.mode === CHAT_MODE_AI) {
+    renderChatEmpty("Loading chat history...");
+  }
   try {
     latestMessages = await fetchJson("/api/messages");
     if (!Array.isArray(latestMessages)) {
       latestMessages = [];
     }
     latestMessages = latestMessages.slice(-300);
+    chatState.localHistory = rebuildLocalHistory(latestMessages);
     logBox.innerHTML = "";
     latestMessages.forEach(appendLog);
     renderChatPeerList();
@@ -5028,6 +5125,8 @@ async function loadMessages() {
       renderDmChat();
     } else if (chatState.mode === CHAT_MODE_CHANS) {
       renderChannelChat();
+    } else if (chatState.mode === CHAT_MODE_AI) {
+      renderLocalChatFromState();
     }
   } catch (error) {
     appendLog({ sender: "system", recipient: "-", text: error.message, transport: "system" });
@@ -5210,6 +5309,24 @@ if (chatPeerTrigger) {
     const listEl = document.getElementById("chatPeerList");
     if (listEl) listEl.hidden = !listEl.hidden;
     if (chatChannelList) chatChannelList.hidden = true;
+  });
+}
+
+const chatPeerTriggerUnread = document.getElementById("chatPeerTriggerUnread");
+if (chatPeerTriggerUnread) {
+  chatPeerTriggerUnread.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const peerId = lastUnreadPeer || [...unreadPeers][unreadPeers.size - 1];
+    if (!peerId) return;
+    unreadPeers.delete(peerId);
+    updateDmTabUnreadGlow();
+    setChatPeerSelection(peerId, { syncWallet: true, persist: true });
+    const listEl = document.getElementById("chatPeerList");
+    if (listEl) listEl.hidden = true;
+    renderChatPeerList();
+    if (chatState.mode === CHAT_MODE_DM) {
+      refreshActiveDmChat();
+    }
   });
 }
 
@@ -6328,6 +6445,7 @@ function connectEvents() {
       const isCurrentPeer = message.sender === chatState.selectedPeer && chatState.mode === CHAT_MODE_DM;
       if (!isCurrentPeer) {
         unreadPeers.add(message.sender);
+        lastUnreadPeer = message.sender;
         renderChatPeerList();
         updateDmTabUnreadGlow();
       }
