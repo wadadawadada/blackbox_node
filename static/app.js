@@ -48,6 +48,8 @@ const nodeModalIdentity = document.getElementById("nodeModalIdentity");
 const nodeModalStatus = document.getElementById("nodeModalStatus");
 const nodeModalMetrics = document.getElementById("nodeModalMetrics");
 const nodeModalPorts = document.getElementById("nodeModalPorts");
+const nodeModalNeighbors = document.getElementById("nodeModalNeighbors");
+const nodeModalWeather = document.getElementById("nodeModalWeather");
 const nodeModalDecoded = document.getElementById("nodeModalDecoded");
 const nodeModalRaw = document.getElementById("nodeModalRaw");
 const modelManagerModal = document.getElementById("modelManagerModal");
@@ -2660,6 +2662,40 @@ function formatMetric(label, value) {
   return value;
 }
 
+const WEATHER_SVGS = {
+  temp: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="8.5" y="2" width="3" height="10.5" rx="1.5"/><circle cx="10" cy="15.5" r="2.5" fill="currentColor" stroke="none" opacity="0.85"/><line x1="11.5" y1="5" x2="14" y2="5"/><line x1="11.5" y1="7.5" x2="14" y2="7.5"/><line x1="11.5" y1="10" x2="14" y2="10"/></svg>`,
+  humidity: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3C10 3 4 10 4 14a6 6 0 0 0 12 0c0-4-6-11-6-11z" fill="currentColor" opacity="0.25"/><path d="M10 3C10 3 4 10 4 14a6 6 0 0 0 12 0c0-4-6-11-6-11z"/></svg>`,
+  pressure: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10" cy="11" r="6.5"/><path d="M10 11L13.5 7"/><circle cx="10" cy="11" r="1" fill="currentColor" stroke="none"/><path d="M7 4.5L10 3l3 1.5" stroke-linejoin="round"/></svg>`,
+  wind: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 7h8.5a2.5 2.5 0 1 0-2.5-2.5"/><path d="M3 11h10.5a2.5 2.5 0 1 1-2.5 2.5"/><line x1="3" y1="9" x2="8" y2="9"/></svg>`,
+  direction: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.5"/><path d="M10 4v2M10 14v2M4 10h2M14 10h2"/><path d="M10 10l2.5-3.5" stroke-width="2"/></svg>`,
+  iaq: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3a7 7 0 1 1 0 14A7 7 0 0 1 10 3z"/><path d="M7 10.5s.8 2 3 2 3-2 3-2"/><circle cx="7.5" cy="8" r="1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1" fill="currentColor" stroke="none"/></svg>`,
+  gas: `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 17V8a5 5 0 0 1 10 0v9"/><line x1="3" y1="17" x2="17" y2="17"/><path d="M8 8h4"/></svg>`,
+};
+
+function windDirLabel(deg) {
+  const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  return dirs[Math.round(deg / 45) % 8] + ` ${Math.round(deg)}°`;
+}
+
+function renderWeatherBlock(env) {
+  const items = [];
+  if (env.temperature != null) items.push({ key: "temp", val: `${Number(env.temperature).toFixed(1)}°C`, lbl: "Temp" });
+  if (env.relativeHumidity != null) items.push({ key: "humidity", val: `${Math.round(env.relativeHumidity)}%`, lbl: "Humidity" });
+  if (env.barometricPressure != null) items.push({ key: "pressure", val: `${Math.round(env.barometricPressure)} hPa`, lbl: "Pressure" });
+  if (env.windSpeed != null) items.push({ key: "wind", val: `${Number(env.windSpeed).toFixed(1)} m/s`, lbl: "Wind" });
+  if (env.windDirection != null) items.push({ key: "direction", val: windDirLabel(env.windDirection), lbl: "Direction" });
+  if (env.iaq != null) items.push({ key: "iaq", val: `${env.iaq}`, lbl: "IAQ" });
+  if (env.gasResistance != null) items.push({ key: "gas", val: `${Math.round(env.gasResistance)} Ω`, lbl: "Gas" });
+  if (!items.length) return "";
+  const cards = items.map(({ key, val, lbl }) => `
+    <div class="node-weather-card">
+      <div class="node-weather-icon">${WEATHER_SVGS[key] || ""}</div>
+      <div class="node-weather-val">${val}</div>
+      <div class="node-weather-lbl">${lbl}</div>
+    </div>`).join("");
+  return `<div class="modal-label">Weather</div><div class="node-weather-grid">${cards}</div>`;
+}
+
 async function openNodeModal(nodeId) {
   try {
     const payload = await fetchJson(`/api/node-raw?id=${encodeURIComponent(nodeId)}`);
@@ -2670,18 +2706,36 @@ async function openNodeModal(nodeId) {
     const raw = payload.raw || {};
     const lat = raw.position?.latitude ?? raw.latitude;
     const lon = raw.position?.longitude ?? raw.longitude;
+    const alt = raw.position?.altitude ?? raw.altitude ?? null;
+
     renderKv(nodeModalIdentity, [
       ["Name", payload.longName || payload.shortName || payload.userId || payload.id],
       ["ID", payload.userId || payload.id],
       ["Short", payload.shortName],
       ["Hardware", payload.hardware],
-      ...(lat != null && lat !== 0 ? [["Lat", lat], ["Lon", lon]] : []),
+      ...(payload.meshtasticRole ? [["Role", payload.meshtasticRole]] : []),
+      ...(payload.modemPreset ? [["Modem", payload.modemPreset]] : []),
+      ...(lat != null && lat !== 0 ? [["Lat", Number(lat).toFixed(5)], ["Lon", Number(lon).toFixed(5)]] : []),
+      ...(alt != null && alt !== 0 ? [["Alt", `${alt} m`]] : []),
     ]);
+
+    const lastPkt = payload.lastPacket || {};
+    const rssi = lastPkt.rxRssi ?? raw.rxRssi ?? null;
+    const channelIdx = lastPkt.channel ?? raw.channel ?? null;
+    const snrVal = raw.snr ?? payload.snr ?? null;
+    const hopsVal = raw.hopsAway ?? payload.hopsAway ?? null;
+    const lastHeardStr = payload.lastHeard
+      ? new Date(payload.lastHeard * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      : null;
+
     renderKv(nodeModalStatus, [
       ["Online", isOnline ? "yes" : "no"],
       ["Live", payload.live ? "yes" : "no"],
-      ["Hops", raw.hopsAway ?? "-"],
-      ["SNR", formatMetric("SNR", raw.snr)],
+      ["Hops", hopsVal ?? "-"],
+      ["SNR", formatMetric("SNR", snrVal)],
+      ...(rssi != null ? [["RSSI", `${rssi} dBm`]] : []),
+      ...(lastHeardStr ? [["Last heard", lastHeardStr]] : []),
+      ...(channelIdx != null ? [["Channel", channelIdx]] : []),
     ]);
 
     const metrics = raw.deviceMetrics || payload.lastDecoded?.deviceMetrics || payload.lastDecoded?.localStats || {};
@@ -2704,6 +2758,27 @@ async function openNodeModal(nodeId) {
       });
     } else {
       nodeModalPorts.innerHTML = '<div class="node-empty">No live packets yet</div>';
+    }
+
+    const neighbors = payload.neighbors || [];
+    if (neighbors.length) {
+      nodeModalNeighbors.classList.remove("hidden");
+      const badges = neighbors.map((n) => {
+        const snrTag = n.snr != null ? `<span class="node-neighbor-snr">${n.snr} dB</span>` : "";
+        return `<span class="node-neighbor-badge"><span class="node-neighbor-id">${n.nodeId}</span>${snrTag}</span>`;
+      }).join("");
+      nodeModalNeighbors.innerHTML = `<div class="modal-label">Neighbors</div><div class="node-neighbors-list">${badges}</div>`;
+    } else {
+      nodeModalNeighbors.classList.add("hidden");
+    }
+
+    const env = payload.environmentMetrics || {};
+    const hasWeather = env.temperature != null || env.relativeHumidity != null || env.barometricPressure != null || env.windSpeed != null || env.iaq != null;
+    if (hasWeather) {
+      nodeModalWeather.classList.remove("hidden");
+      nodeModalWeather.innerHTML = renderWeatherBlock(env);
+    } else {
+      nodeModalWeather.classList.add("hidden");
     }
 
     nodeModalDecoded.textContent = JSON.stringify(payload.lastDecoded || {}, null, 2);

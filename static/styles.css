@@ -2036,6 +2036,14 @@ button {
   gap: 6px;
 }
 
+.node-modal-top > .node-modal-weather:not(.hidden) {
+  display: grid;
+}
+
+.node-modal-top:has(> .node-modal-weather:not(.hidden)) {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 78px;
+}
+
 .node-modal-right-col {
   display: grid;
   gap: 6px;
@@ -2099,7 +2107,7 @@ button {
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr);
   gap: 8px;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.5;
   align-items: start;
 }
@@ -2162,6 +2170,118 @@ button {
   color: var(--muted);
   font-size: 10px;
   padding: 8px;
+}
+
+/* ── Neighbors ─────────────────────────────── */
+.node-modal-neighbors {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #1e2228;
+  border-top: 1px solid var(--edge-light);
+  border-left: 1px solid var(--edge-light);
+  border-right: 1px solid var(--edge-dark);
+  border-bottom: 1px solid var(--edge-dark);
+}
+
+.node-neighbors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.node-neighbor-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: #2d3540;
+  border-top: 1px solid var(--edge-light);
+  border-left: 1px solid var(--edge-light);
+  border-right: 1px solid var(--edge-dark);
+  border-bottom: 1px solid var(--edge-dark);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.node-neighbor-id {
+  color: var(--ink);
+  font-family: Consolas, monospace;
+}
+
+.node-neighbor-snr {
+  color: var(--muted);
+  font-size: 8px;
+  padding-left: 2px;
+}
+
+/* ── Weather block ──────────────────────────── */
+.node-modal-weather {
+  display: none;
+  gap: 6px;
+  padding: 8px 6px;
+  background: #1a1e24;
+  border-top: 1px solid #4a7fa0;
+  border-left: 1px solid #4a7fa0;
+  border-right: 1px solid #0d1318;
+  border-bottom: 1px solid #0d1318;
+  align-items: center;
+  justify-content: center;
+}
+
+.node-modal-weather:not(.hidden) {
+  display: grid;
+}
+
+.node-weather-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.node-weather-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 58px;
+  height: 58px;
+  background: #222831;
+  border-top: 1px solid #3d6b87;
+  border-left: 1px solid #3d6b87;
+  border-right: 1px solid #0d1318;
+  border-bottom: 1px solid #0d1318;
+  flex-shrink: 0;
+}
+
+.node-weather-icon {
+  width: 18px;
+  height: 18px;
+  color: #6ab4d8;
+  flex-shrink: 0;
+}
+
+.node-weather-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.node-weather-val {
+  font-size: 10px;
+  font-weight: 600;
+  color: #d4eaf8;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.node-weather-lbl {
+  font-family: "Press Start Local", monospace;
+  font-size: 6px;
+  color: #5a7f9a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .log {
@@ -3565,7 +3685,8 @@ textarea,
     grid-template-columns: 1fr;
   }
 
-  .node-modal-top {
+  .node-modal-top,
+  .node-modal-top:has(> .node-modal-weather:not(.hidden)) {
     grid-template-columns: 1fr;
   }
 
