@@ -686,6 +686,7 @@ select {
   padding: 9px 11px;
   white-space: pre-wrap;
   word-break: break-word;
+  font-size: 16px;
   border-top: 1px solid var(--edge-light);
   border-left: 1px solid var(--edge-light);
   border-right: 1px solid var(--edge-dark);
@@ -746,7 +747,7 @@ select {
 
 .chat-bubble.ai {
   justify-self: start;
-  background: #273241;
+  background: #161c24;
   color: #d7e5f6;
 }
 
@@ -757,7 +758,7 @@ select {
 
 .chat-bubble.node {
   justify-self: start;
-  background: #2d3641;
+  background: #181e28;
   color: #dbe9f8;
 }
 
@@ -1680,19 +1681,20 @@ button {
   color: var(--muted);
 }
 
-.ai-settings-toggle {
+.ai-settings-toggle-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  color: var(--ink);
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  margin-bottom: 10px;
 }
 
-.ai-toggle-checkbox {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  flex: 0 0 auto;
+.ai-settings-toggle-row .ai-reply-label {
+  font-size: 8px;
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+  letter-spacing: 0.02em;
+  color: #c0c8d1;
 }
 
 #aiSettingsInstructions {
@@ -4033,7 +4035,7 @@ textarea,
 }
 .ai-reply-row--settings {
   margin-left: 0;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .ai-reply-label {

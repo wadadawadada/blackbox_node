@@ -169,6 +169,7 @@ const RESPONSE_CHAR_LIMIT = 900;
 const LOCAL_CHAT_MAX_TOKENS = 384;
 const DEFAULT_AI_SETTINGS = Object.freeze({
   sendCustomInstructions: false,
+  useTelemetry: true,
   customInstructions: "",
   localTemperature: 0.1,
   localTopP: 0.7,
@@ -301,7 +302,11 @@ if (typeof appSettings.lastModelName === "string" && appSettings.lastModelName.t
   llmStatus = { ...llmStatus, model: currentModelName };
 }
 
+const loadedAiSettingsJson = JSON.stringify(appSettings.aiSettings ?? null);
 appSettings.aiSettings = normalizeAiSettings(appSettings.aiSettings);
+if (JSON.stringify(appSettings.aiSettings) !== loadedAiSettingsJson) {
+  persistSettings();
+}
 
 function getConfiguredMeshtasticPort() {
   return typeof appSettings.meshtasticPort === "string" && appSettings.meshtasticPort.trim()
@@ -2138,6 +2143,7 @@ function normalizeAiSettings(input) {
   const source = input && typeof input === "object" ? input : {};
   return {
     sendCustomInstructions: Boolean(source.sendCustomInstructions),
+    useTelemetry: source.useTelemetry == null ? DEFAULT_AI_SETTINGS.useTelemetry : Boolean(source.useTelemetry),
     customInstructions: typeof source.customInstructions === "string" ? source.customInstructions.replace(/\r\n/g, "\n").slice(0, 4000).trim() : DEFAULT_AI_SETTINGS.customInstructions,
     localTemperature: clampNumber(source.localTemperature, 0, 2, DEFAULT_AI_SETTINGS.localTemperature),
     localTopP: clampNumber(source.localTopP, 0.05, 1, DEFAULT_AI_SETTINGS.localTopP),
@@ -2163,12 +2169,27 @@ function buildInstructionSuffix(aiSettings) {
   return `\n\nAdditional instructions:\n${aiSettings.customInstructions}`;
 }
 
+function buildTelemetrySuffix(aiSettings) {
+  if (!aiSettings.useTelemetry) return "";
+  return `\n\nKnown mesh context:\n${buildNodeContext()}`;
+}
+
+function composeSystemPrompt(basePrompt, aiSettings) {
+  return `${basePrompt}${buildInstructionSuffix(aiSettings)}${buildTelemetrySuffix(aiSettings)}`;
+}
+
 function buildLocalSystemPrompt(aiSettings) {
-  return `Reply to the user's last message directly. Be useful, natural, and use the same language as the user. Give enough detail to fully answer the request, but stay concise when the user asks for something simple. Do not mention being an AI assistant or explain your role unless asked.${buildInstructionSuffix(aiSettings)}\n\nKnown mesh context:\n${buildNodeContext()}`;
+  return composeSystemPrompt(
+    "Reply to the user's last message directly.",
+    aiSettings,
+  );
 }
 
 function buildMeshSystemPrompt(aiSettings) {
-  return `Reply to the user's last message directly. Use the same language as the user. Keep it concise and radio-friendly. Strong preference: fit the whole reply into one short radio packet. Use plain text only, no emoji, no decorative symbols, and no unexpected scripts from other languages. If the request is large, compress aggressively and keep only the essential answer.${buildInstructionSuffix(aiSettings)}\n\nKnown mesh context:\n${buildNodeContext()}`;
+  return composeSystemPrompt(
+    "Reply to the user's last message directly. Keep it concise and radio-friendly. Strong preference: fit the whole reply into one short radio packet. Use plain text only.",
+    aiSettings,
+  );
 }
 
 function addMessage(entry) {

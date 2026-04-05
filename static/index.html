@@ -20,17 +20,17 @@
             <path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2c-.5-1.1-1.1-1.4-1.1-1.4c-.9-.6.1-.6.1-.6c1 .1 1.6 1 1.6 1c.9 1.5 2.3 1.1 2.9.8c.1-.7.4-1.1.6-1.4c-2.2-.2-4.5-1.1-4.5-4.9c0-1.1.4-2.1 1-2.8c-.1-.2-.4-1.3.1-2.7c0 0 .8-.3 2.8 1.1a9.5 9.5 0 0 1 5 0c1.9-1.4 2.8-1.1 2.8-1.1c.5 1.4.2 2.5.1 2.7c.6.8 1 1.7 1 2.8c0 3.8-2.3 4.7-4.5 4.9c.4.3.7 1 .7 2v2.9c0 .3.2.6.7.5A10 10 0 0 0 12 2"></path>
           </svg>
         </a>
-        <button id="openWalletButton" type="button" class="titlebar-icon-button titlebar-wallet-button" aria-label="Open wallet tools">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M3 7h18v10H3z"></path>
-            <circle cx="17" cy="12" r="1.5"></circle>
-          </svg>
-        </button>
         <button id="openHelpButton" type="button" class="titlebar-icon-button" aria-label="Open help">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <rect x="5" y="5" width="14" height="14" rx="1.5"></rect>
             <path d="M12 10.4v5.1"></path>
             <circle cx="12" cy="7.2" r="1"></circle>
+          </svg>
+        </button>
+        <button id="openWalletButton" type="button" class="titlebar-icon-button titlebar-wallet-button" aria-label="Open wallet tools">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M3 7h18v10H3z"></path>
+            <circle cx="17" cy="12" r="1.5"></circle>
           </svg>
         </button>
       </div>
@@ -319,10 +319,16 @@
         <div class="ai-settings-grid">
           <div class="modal-section modal-section-wide">
             <div class="modal-label">Prompt Instructions</div>
-            <label class="ai-settings-toggle" for="aiSettingsEnableInstructions">
-              <input id="aiSettingsEnableInstructions" class="ai-toggle-checkbox" type="checkbox">
-              <span>Send custom instructions with every request</span>
-            </label>
+            <div class="ai-settings-toggle-row">
+              <div class="ai-reply-row ai-reply-row--settings">
+                <span class="ai-reply-label">Prompt</span>
+                <button id="aiSettingsEnableInstructions" type="button" class="ai-reply-btn" aria-pressed="false">off</button>
+              </div>
+              <div class="ai-reply-row ai-reply-row--settings">
+                <span class="ai-reply-label">Telemetry</span>
+                <button id="aiSettingsUseTelemetry" type="button" class="ai-reply-btn" aria-pressed="false">off</button>
+              </div>
+            </div>
             <textarea id="aiSettingsInstructions" rows="6" placeholder="Example: Prefer practical answers. Keep responses short. Always answer in English."></textarea>
           </div>
           <div class="modal-section">

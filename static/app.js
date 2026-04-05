@@ -63,6 +63,7 @@ const aiSettingsForm = document.getElementById("aiSettingsForm");
 const aiSettingsStatusText = document.getElementById("aiSettingsStatusText");
 const aiSettingsCurrentModel = document.getElementById("aiSettingsCurrentModel");
 const aiSettingsEnableInstructions = document.getElementById("aiSettingsEnableInstructions");
+const aiSettingsUseTelemetry = document.getElementById("aiSettingsUseTelemetry");
 const aiSettingsInstructions = document.getElementById("aiSettingsInstructions");
 const aiSettingsLocalTemperature = document.getElementById("aiSettingsLocalTemperature");
 const aiSettingsLocalTopP = document.getElementById("aiSettingsLocalTopP");
@@ -1715,14 +1716,21 @@ function closeModelManager() {
 }
 
 function toggleAiInstructionsInput() {
-  aiSettingsInstructions.disabled = !aiSettingsEnableInstructions.checked;
+  aiSettingsInstructions.disabled = aiSettingsEnableInstructions.getAttribute("aria-pressed") !== "true";
+}
+
+function setAiSettingsToggle(button, enabled) {
+  button.textContent = enabled ? "on" : "off";
+  button.setAttribute("aria-pressed", enabled ? "true" : "false");
+  button.classList.toggle("ai-reply-btn--on", enabled);
 }
 
 function renderAiSettings(payload) {
   latestAiSettingsPayload = payload;
   const settings = payload?.settings || {};
   aiSettingsCurrentModel.textContent = "Current model: " + (payload?.currentModel || currentSelectedModel || "n/a");
-  aiSettingsEnableInstructions.checked = Boolean(settings.sendCustomInstructions);
+  setAiSettingsToggle(aiSettingsEnableInstructions, Boolean(settings.sendCustomInstructions));
+  setAiSettingsToggle(aiSettingsUseTelemetry, settings.useTelemetry !== false);
   aiSettingsInstructions.value = settings.customInstructions || "";
   aiSettingsLocalTemperature.value = settings.localTemperature ?? 0.1;
   aiSettingsLocalTopP.value = settings.localTopP ?? 0.7;
@@ -1745,10 +1753,10 @@ function openAiSettingsModal() {
   aiSettingsStatusText.textContent = "Loading AI settings...";
   if (latestAiSettingsPayload) {
     renderAiSettings(latestAiSettingsPayload);
-    aiSettingsStatusText.textContent = "Edit prompt instructions and generation controls.";
+    aiSettingsStatusText.textContent = "Choose custom instructions, telemetry context, and generation controls.";
   }
   loadAiSettings().then(() => {
-    aiSettingsStatusText.textContent = "Edit prompt instructions and generation controls.";
+    aiSettingsStatusText.textContent = "Choose custom instructions, telemetry context, and generation controls.";
   }).catch((error) => {
     aiSettingsStatusText.textContent = `Settings error: ${error.message}`;
   });
@@ -1761,7 +1769,8 @@ function closeAiSettingsModal() {
 
 function collectAiSettingsForm() {
   return {
-    sendCustomInstructions: aiSettingsEnableInstructions.checked,
+    sendCustomInstructions: aiSettingsEnableInstructions.getAttribute("aria-pressed") === "true",
+    useTelemetry: aiSettingsUseTelemetry.getAttribute("aria-pressed") === "true",
     customInstructions: aiSettingsInstructions.value,
     localTemperature: Number(aiSettingsLocalTemperature.value),
     localTopP: Number(aiSettingsLocalTopP.value),
@@ -2804,71 +2813,31 @@ function closeNodeModal() {
   nodeModal.setAttribute("aria-hidden", "true");
 }
 
-let _locateWatchNodeId = null;
-let _locateWatchPeerId = null;
-let _locateTimeout = null;
-
 function _setupLocateButton(nodeId, peerId, hasPos) {
-  clearTimeout(_locateTimeout);
-  _locateWatchNodeId = null;
-  _locateWatchPeerId = null;
-
   const btn = nodeModalPositionButton;
   const label = btn.querySelector("svg + *") || btn.lastChild;
 
-  function setIdle() {
-    btn.disabled = false;
-    btn.classList.remove("node-modal-action-btn--pending", "node-modal-action-btn--success");
-    btn.title = "Request current location from node";
-    if (label) label.textContent = " Locate";
-  }
-  function setPending() {
-    btn.disabled = true;
-    btn.classList.add("node-modal-action-btn--pending");
-    btn.classList.remove("node-modal-action-btn--success");
-    if (label) label.textContent = " Locating...";
-  }
-  function setSuccess() {
-    btn.disabled = false;
-    btn.classList.remove("node-modal-action-btn--pending");
-    btn.classList.add("node-modal-action-btn--success");
-    if (label) label.textContent = " Show on map";
-  }
+  btn.disabled = false;
+  btn.classList.remove("node-modal-action-btn--pending", "node-modal-action-btn--success");
+  btn.title = "Show node on map";
+  if (label) label.textContent = " Locate";
 
-  setIdle();
-
-  btn.onclick = async () => {
-    if (btn.classList.contains("node-modal-action-btn--success")) {
-      // Open map and zoom to node
-      closeNodeModal();
-      openNodesMap();
-      setTimeout(() => {
-        const target = latestNodes.find((n) => (n.userId || n.id) === peerId);
-        if (target?.latitude && _mapInstance) {
-          _mapInstance.setView([target.latitude, target.longitude], 14, { animate: true });
-        }
-      }, 400);
-      return;
-    }
-    setPending();
-    _locateWatchNodeId = nodeId;
-    _locateWatchPeerId = peerId;
-    _locateTimeout = setTimeout(() => {
-      if (_locateWatchNodeId === nodeId) { _locateWatchNodeId = null; setIdle(); }
-    }, 30000);
-    try {
-      await fetchJson(`/api/node/${encodeURIComponent(peerId)}/request-position`, { method: "POST" });
-    } catch {
-      clearTimeout(_locateTimeout);
-      _locateWatchNodeId = null;
-      setIdle();
-    }
+  btn.onclick = () => {
+    closeNodeModal();
+    openNodesMap();
+    setTimeout(() => {
+      const pos = _renderedPosById.get(peerId) || _renderedPosById.get(nodeId);
+      if (pos && _mapInstance) {
+        _mapInstance.setView([pos.lat, pos.lon], 14, { animate: true });
+      }
+    }, 400);
   };
 }
 
 // Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ Nodes Map Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ
 let _mapInstance = null;
 let _mapMarkers = [];
+let _renderedPosById = new Map(); // nodeId/userId → {lat, lon} for all rendered markers
 let _mapCircles = [];
 let _mapLines = [];
 let _hoverLines = [];
@@ -4553,6 +4522,7 @@ function _renderMapNodes(fitBounds = true) {
 
   _mapMarkers.forEach((m) => m.remove());
   _mapMarkers = [];
+  _renderedPosById = new Map();
   _mapCircles.forEach((c) => c.remove());
   _mapCircles = [];
   _mapLines.forEach((l) => l.remove());
@@ -4752,8 +4722,13 @@ function _renderMapNodes(fitBounds = true) {
 
   // Build position map and edge map for online rendered nodes only (used by hover links)
   _renderedPos = new Map();
+  _renderedPosById = new Map();
   for (const { lat, lon, node } of onlineRenderEntries) {
     if (node.meshNum != null) _renderedPos.set(String(node.meshNum), { lat, lon });
+  }
+  for (const { lat, lon, node } of renderEntries) {
+    if (node.id) _renderedPosById.set(String(node.id), { lat, lon });
+    if (node.userId) _renderedPosById.set(String(node.userId), { lat, lon });
   }
 
   _nodeEdges = new Map();
@@ -6306,7 +6281,15 @@ walletResetButton.addEventListener("click", async () => {
     walletSettingsStatus.textContent = `Error: ${err.message}`;
   }
 });
-aiSettingsEnableInstructions.addEventListener("change", toggleAiInstructionsInput);
+aiSettingsEnableInstructions.addEventListener("click", () => {
+  const next = aiSettingsEnableInstructions.getAttribute("aria-pressed") !== "true";
+  setAiSettingsToggle(aiSettingsEnableInstructions, next);
+  toggleAiInstructionsInput();
+});
+aiSettingsUseTelemetry.addEventListener("click", () => {
+  const next = aiSettingsUseTelemetry.getAttribute("aria-pressed") !== "true";
+  setAiSettingsToggle(aiSettingsUseTelemetry, next);
+});
 aiSettingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   aiSettingsStatusText.textContent = "Saving AI settings...";
@@ -6538,23 +6521,6 @@ function connectEvents() {
   source.addEventListener("nodes", (event) => {
     const payload = JSON.parse(event.data);
     renderNodes(payload.nodes || [], payload.meshLinks || []);
-    // Check if we were waiting for a position update
-    if (_locateWatchPeerId) {
-      const updated = (payload.nodes || []).find((n) => (n.userId || n.id) === _locateWatchPeerId);
-      if (updated && updated.latitude && updated.latitude !== 0) {
-        clearTimeout(_locateTimeout);
-        _locateWatchNodeId = null;
-        _locateWatchPeerId = null;
-        const btn = nodeModalPositionButton;
-        if (btn) {
-          btn.disabled = false;
-          btn.classList.remove("node-modal-action-btn--pending");
-          btn.classList.add("node-modal-action-btn--success");
-          const label = btn.querySelector("svg + *") || btn.lastChild;
-          if (label) label.textContent = " Show on map";
-        }
-      }
-    }
     if (_mapInstance && !nodesMapModal.classList.contains("hidden")) {
       _renderMapNodes(false);
     }
