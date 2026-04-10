@@ -3390,8 +3390,9 @@ function openNodesMap() {
         `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line" style="background:#ff7043"></span> Weak SNR (&lt;0 dB)</div>` +
         `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line" style="background:#4a9eff"></span> No SNR data</div>` +
         `<div class="nodes-map-legend-divider"></div>` +
-        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line--dashed" style="border-color:#4a9eff"></span> Direct (1 hop)</div>` +
-        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line--dashed" style="border-color:#b06fff"></span> Relayed (2 hops)</div>`;
+        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line--dashed" style="border-color:#4a9eff"></span> Inferred path (1 hop step)</div>` +
+        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line--dashed" style="border-color:#b06fff"></span> Inferred path (2 hops)</div>` +
+        `<div class="nodes-map-legend-row"><span class="nodes-map-legend-line--dashed" style="border-color:#ff8a65"></span> Inferred path (3+ hops)</div>`;
       L.DomEvent.disableClickPropagation(div);
       return div;
     };
@@ -4598,7 +4599,6 @@ function _renderMapNodes(fitBounds = true) {
   _clearHoverLines();
 
   if (_mapShowRadius) _renderMapRadius(withPos, allByMeshNum, reverseLookup);
-  if (_mapShowLinks) _renderMapLinks(withPos);
 
   // Built after renderEntries is ready (closures read these by reference at call-time)
   let _renderedPos = null; // Map<meshNumStr, {lat,lon}>
@@ -4767,76 +4767,30 @@ function _renderMapNodes(fitBounds = true) {
     });
   }
 
-  const onlineRenderEntries = renderEntries.filter(({ node }) => !!node.online);
+  const topology = _buildMapTopology(renderEntries);
+  if (_mapShowLinks) _renderMapLinks(renderEntries, topology);
 
-  // Build position map and edge map for online rendered nodes only (used by hover links)
+  // Build position map and edge map for rendered nodes (used by hover links)
   _renderedPos = new Map();
   _renderedPosById = new Map();
-  for (const { lat, lon, node } of onlineRenderEntries) {
-    if (node.meshNum != null) _renderedPos.set(String(node.meshNum), { lat, lon });
-  }
   for (const { lat, lon, node } of renderEntries) {
+    if (node.meshNum != null) _renderedPos.set(String(node.meshNum), { lat, lon });
     if (node.id) _renderedPosById.set(String(node.id), { lat, lon });
     if (node.userId) _renderedPosById.set(String(node.userId), { lat, lon });
   }
 
   _nodeEdges = new Map();
-  function _addEdge(fromNum, toNum, snr) {
-    const k = String(fromNum);
-    if (!_nodeEdges.has(k)) _nodeEdges.set(k, []);
-    _nodeEdges.get(k).push({ to: String(toNum), snr: snr ?? null });
-  }
-  // NEIGHBORINFO edges (bidirectional)
-  for (const { node } of onlineRenderEntries) {
-    if (!node.meshNum) continue;
-    for (const nb of (node.neighbors || [])) {
-      _addEdge(node.meshNum, nb.nodeId, nb.snr);
-      _addEdge(nb.nodeId, node.meshNum, nb.snr);
-    }
-  }
-  // Observed relay edges (bidirectional)
-  for (const link of latestMeshLinks) {
-    if (link.from && link.via) {
-      _addEdge(link.from, link.via, link.snr);
-      _addEdge(link.via, link.from, link.snr);
-    }
-  }
-  // hopsAway fallback edges
-  const ourEntry = onlineRenderEntries.find((e) => e.node.hopsAway === 0);
-  const hop1Entries = onlineRenderEntries.filter((e) => e.node.hopsAway === 1 && e.node.meshNum != null);
-  if (ourEntry?.node.meshNum != null) {
-    // hop1 Р Р†РІР‚В РІР‚в„ў ourNode
-    for (const { node } of hop1Entries) {
-      _addEdge(node.meshNum, ourEntry.node.meshNum, node.snr);
-      _addEdge(ourEntry.node.meshNum, node.meshNum, node.snr);
-    }
-    // hop2 Р Р†РІР‚В РІР‚в„ў nearest hop1 + ourNode Р Р†РІР‚В РІР‚в„ў that hop1 (same relay logic as _renderMapLinks)
-    for (const { node } of onlineRenderEntries) {
-      if (node.hopsAway !== 2 || !node.meshNum) continue;
-      // find nearest hop1 by distance
-      const myPos = _renderedPos.get(String(node.meshNum));
-      if (!myPos) continue;
-      let relay = hop1Entries[0];
-      let minDist = Infinity;
-      for (const h1e of hop1Entries) {
-        const h1pos = _renderedPos.get(String(h1e.node.meshNum));
-        if (!h1pos) continue;
-        const d = (h1pos.lat - myPos.lat) ** 2 + (h1pos.lon - myPos.lon) ** 2;
-        if (d < minDist) { minDist = d; relay = h1e; }
-      }
-      if (relay?.node.meshNum != null) {
-        _addEdge(node.meshNum, relay.node.meshNum, node.snr);
-        _addEdge(relay.node.meshNum, node.meshNum, node.snr);
-      }
-    }
-    // any remaining estimated node with no edges Р Р†РІР‚В РІР‚в„ў connect to ourNode as last resort
-    for (const { node, estimated } of renderEntries) {
-      if (!estimated || !node.meshNum) continue;
-      if (!_nodeEdges.has(String(node.meshNum))) {
-        _addEdge(node.meshNum, ourEntry.node.meshNum, node.snr ?? null);
-        _addEdge(ourEntry.node.meshNum, node.meshNum, node.snr ?? null);
-      }
-    }
+  for (const [fromMeshNum, neighbors] of (topology.adjacency || new Map()).entries()) {
+    _nodeEdges.set(
+      String(fromMeshNum),
+      [...neighbors].map((toMeshNum) => {
+        const edgeKey = String(fromMeshNum) < String(toMeshNum)
+          ? `${fromMeshNum}|${toMeshNum}`
+          : `${toMeshNum}|${fromMeshNum}`;
+        const edge = (topology.edges || []).find((item) => item.key === edgeKey);
+        return { to: String(toMeshNum), snr: edge?.snr ?? null };
+      }),
+    );
   }
 
   for (const { lat, lon, node, estimated } of renderEntries) {
@@ -5232,7 +5186,15 @@ function _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup) {
   // hopsAway fallback: use ourNode as anchor
   if (node.hopsAway != null && node.hopsAway > 0) {
     const ourNode = withPos.find((n) => n.hopsAway === 0);
-    if (!ourNode) return null;
+    let anchorLat = ourNode?.latitude ?? null;
+    let anchorLon = ourNode?.longitude ?? null;
+    if (anchorLat == null || anchorLon == null || anchorLat === 0 || anchorLon === 0) {
+      const localNode = Object.values(allByMeshNum || {}).find((n) => n?.hopsAway === 0);
+      const localEstimate = localNode ? _estimateNodePosition(localNode, withPos, allByMeshNum, reverseLookup) : null;
+      anchorLat = localEstimate?.latitude ?? null;
+      anchorLon = localEstimate?.longitude ?? null;
+    }
+    if (anchorLat == null || anchorLon == null || anchorLat === 0 || anchorLon === 0) return null;
     const syntheticSnr = 10 - node.hopsAway * 8;
     const distM = _snrToRadius(syntheticSnr, node?.modemPreset, {
       hopsAway: node?.hopsAway,
@@ -5240,11 +5202,221 @@ function _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup) {
       networkPreset,
     });
     const dLat = (distM / 111320) * Math.sin(angle);
-    const dLon = (distM / (111320 * Math.cos(ourNode.latitude * Math.PI / 180))) * Math.cos(angle);
-    return { latitude: ourNode.latitude + dLat, longitude: ourNode.longitude + dLon };
+    const dLon = (distM / (111320 * Math.cos(anchorLat * Math.PI / 180))) * Math.cos(angle);
+    return { latitude: anchorLat + dLat, longitude: anchorLon + dLon };
   }
 
   return null;
+}
+
+function _getNodeLastSeenMs(node) {
+  const stamp = node?.lastSeenAt ?? node?.lastHeard ?? null;
+  if (!stamp) return 0;
+  const value = typeof stamp === "number" ? stamp * 1000 : new Date(stamp).getTime();
+  return Number.isFinite(value) ? value : 0;
+}
+
+function _getTopologyHopColor(hopsAway) {
+  const hops = Math.max(1, Math.round(_toFiniteNumber(hopsAway) ?? 1));
+  if (hops <= 1) return "#4a9eff";
+  if (hops === 2) return "#b06fff";
+  if (hops === 3) return "#ff8a65";
+  if (hops === 4) return "#ffd54f";
+  return "#8bc34a";
+}
+
+function _buildMapTopology(renderEntries = []) {
+  const entries = Array.isArray(renderEntries)
+    ? renderEntries.filter((entry) => entry?.node?.meshNum != null)
+    : [];
+  const byMeshNum = new Map();
+  for (const entry of entries) {
+    byMeshNum.set(String(entry.node.meshNum), entry);
+  }
+
+  const edgesByKey = new Map();
+  const realAdjacency = new Map();
+
+  function addAdjacency(map, left, right) {
+    if (!map.has(left)) map.set(left, new Set());
+    map.get(left).add(right);
+  }
+
+  function edgeKey(left, right) {
+    return left < right ? `${left}|${right}` : `${right}|${left}`;
+  }
+
+  function addEdge(leftEntry, rightEntry, options = {}) {
+    const left = String(leftEntry?.node?.meshNum ?? "");
+    const right = String(rightEntry?.node?.meshNum ?? "");
+    if (!left || !right || left === right) return;
+
+    const next = {
+      key: edgeKey(left, right),
+      from: left,
+      to: right,
+      snr: options.snr ?? null,
+      color: options.color || "#4a9eff",
+      dashed: Boolean(options.dashed),
+      kind: options.kind || "inferred",
+      priority: Number(options.priority || 0),
+      score: Number(options.score || 0),
+    };
+    const prev = edgesByKey.get(next.key);
+    if (!prev || next.priority > prev.priority || (next.priority === prev.priority && next.score > prev.score)) {
+      edgesByKey.set(next.key, next);
+    }
+    if (options.real) {
+      addAdjacency(realAdjacency, left, right);
+      addAdjacency(realAdjacency, right, left);
+    }
+  }
+
+  for (const entry of entries) {
+    const node = entry.node;
+    if (!node?.online) continue;
+    for (const nb of (node.neighbors || [])) {
+      const otherEntry = byMeshNum.get(String(nb?.nodeId || ""));
+      if (!otherEntry?.node?.online) continue;
+      addEdge(entry, otherEntry, {
+        kind: "neighbor",
+        real: true,
+        priority: 50,
+        snr: nb?.snr ?? null,
+        color: _snrToColor(nb?.snr),
+      });
+    }
+  }
+
+  for (const link of latestMeshLinks) {
+    const fromEntry = byMeshNum.get(String(link?.from || ""));
+    const viaEntry = byMeshNum.get(String(link?.via || ""));
+    if (!fromEntry || !viaEntry) continue;
+    addEdge(fromEntry, viaEntry, {
+      kind: "relay",
+      real: true,
+      priority: 40,
+      snr: link?.snr ?? null,
+      color: _snrToColor(link?.snr),
+    });
+  }
+
+  function buildAdjacencyFromEdges() {
+    const adjacency = new Map();
+    for (const edge of edgesByKey.values()) {
+      addAdjacency(adjacency, edge.from, edge.to);
+      addAdjacency(adjacency, edge.to, edge.from);
+    }
+    return adjacency;
+  }
+
+  function getConnectedMeshNums(adjacency) {
+    const roots = entries
+      .filter((entry) => _toFiniteNumber(entry?.node?.hopsAway) === 0)
+      .map((entry) => String(entry.node.meshNum));
+    const visited = new Set(roots);
+    const queue = roots.slice();
+    while (queue.length > 0) {
+      const current = queue.shift();
+      for (const next of (adjacency.get(current) || [])) {
+        if (visited.has(next)) continue;
+        visited.add(next);
+        queue.push(next);
+      }
+    }
+    return visited;
+  }
+
+  function scoreParent(entry, candidate, connected) {
+    const entryHop = _toFiniteNumber(entry?.node?.hopsAway);
+    const candidateHop = _toFiniteNumber(candidate?.node?.hopsAway);
+    if (entryHop == null || candidateHop == null || candidateHop >= entryHop) return -Infinity;
+
+    const entryMesh = String(entry.node.meshNum);
+    const candidateMesh = String(candidate.node.meshNum);
+    const hopDelta = Math.max(1, entryHop - candidateHop);
+    let score = 0;
+
+    score += hopDelta === 1 ? 240 : Math.max(-80, 60 - (hopDelta * 70));
+    if (connected.has(candidateMesh)) score += 40;
+    if (realAdjacency.get(entryMesh)?.has(candidateMesh)) score += 220;
+    if (candidate.node?.online) score += 18;
+    if (!candidate.estimated) score += 8;
+
+    const distanceKm = _haversineKm(entry.lat, entry.lon, candidate.lat, candidate.lon);
+    if (Number.isFinite(distanceKm)) {
+      score -= Math.min(distanceKm, 250) * 0.8;
+    }
+
+    const ageMinutes = Math.min(Math.max(0, (Date.now() - _getNodeLastSeenMs(candidate.node)) / 60000), 720);
+    score -= ageMinutes * 0.08;
+    return score;
+  }
+
+  const inferTargets = entries
+    .filter((entry) => {
+      const hops = _toFiniteNumber(entry?.node?.hopsAway);
+      return entry?.node?.online && hops != null && hops > 0;
+    })
+    .sort((left, right) => {
+      const leftHop = _toFiniteNumber(left?.node?.hopsAway) ?? 999;
+      const rightHop = _toFiniteNumber(right?.node?.hopsAway) ?? 999;
+      if (leftHop !== rightHop) return leftHop - rightHop;
+      return _getNodeLastSeenMs(right?.node) - _getNodeLastSeenMs(left?.node);
+    });
+
+  let adjacency = buildAdjacencyFromEdges();
+  let connected = getConnectedMeshNums(adjacency);
+  const resolving = new Set();
+
+  function ensurePathToRoot(entry) {
+    const entryMesh = String(entry.node.meshNum);
+    if (!entryMesh || connected.has(entryMesh) || resolving.has(entryMesh)) return;
+    resolving.add(entryMesh);
+
+    let bestCandidate = null;
+    let bestScore = -Infinity;
+    for (const candidate of entries) {
+      const score = scoreParent(entry, candidate, connected);
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = candidate;
+      }
+    }
+    if (!bestCandidate || !Number.isFinite(bestScore)) {
+      resolving.delete(entryMesh);
+      return;
+    }
+
+    const candidateMesh = String(bestCandidate.node.meshNum);
+    if (!connected.has(candidateMesh)) {
+      ensurePathToRoot(bestCandidate);
+    }
+
+    addEdge(entry, bestCandidate, {
+      kind: "inferred",
+      dashed: true,
+      color: _getTopologyHopColor(entry.node?.hopsAway),
+      snr: entry.node?.snr ?? null,
+      priority: 10,
+      score: bestScore,
+    });
+    adjacency = buildAdjacencyFromEdges();
+    connected = getConnectedMeshNums(adjacency);
+    resolving.delete(entryMesh);
+  }
+
+  for (const entry of inferTargets) {
+    ensurePathToRoot(entry);
+  }
+
+  return {
+    edges: [...edgesByKey.values()].sort((left, right) => {
+      if (left.dashed !== right.dashed) return left.dashed ? -1 : 1;
+      return (right.priority || 0) - (left.priority || 0);
+    }),
+    adjacency: buildAdjacencyFromEdges(),
+  };
 }
 
 // Link color by SNR quality:
@@ -5252,84 +5424,35 @@ function _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup) {
 //   yellow (#ffc107) Р Р†Р вЂљРІР‚Сњ medium  (0..5 dB)
 //   orange (#ff7043) Р Р†Р вЂљРІР‚Сњ weak    (< 0 dB)
 //   blue   (#4a9eff) Р Р†Р вЂљРІР‚Сњ no SNR data
-// Fallback (hopsAway only, dashed):
-//   blue dashed  Р Р†Р вЂљРІР‚Сњ direct (1 hop, estimated)
-//   purple dashed Р Р†Р вЂљРІР‚Сњ relayed (2 hops, estimated)
-function _renderMapLinks(withPos) {
-  const drawn = new Set();
+// Inferred topology fallback:
+//   dashed blue/purple/orange/yellow/green lines show estimated path segments by hop depth
+function _renderMapLinks(renderEntries, topology = null) {
+  const byMeshNum = new Map();
+  for (const entry of (renderEntries || [])) {
+    if (entry?.node?.meshNum != null) {
+      byMeshNum.set(String(entry.node.meshNum), entry);
+    }
+  }
 
-  function drawLine(lat1, lon1, lat2, lon2, snr, color, dashed = false) {
-    const key = [lat1, lon1, lat2, lon2].map((v) => v.toFixed(6)).join("|");
-    const keyRev = [lat2, lon2, lat1, lon1].map((v) => v.toFixed(6)).join("|");
-    if (drawn.has(key) || drawn.has(keyRev)) return;
-    drawn.add(key);
-    const opacity = snr == null ? 0.5 : Math.max(0.3, Math.min(0.9, 0.45 + snr / 20));
-    const opts = { color, weight: dashed ? 1.5 : 2, opacity, interactive: false };
-    if (dashed) opts.dashArray = "6 5";
-    const line = L.polyline([[lat1, lon1], [lat2, lon2]], opts).addTo(_mapInstance);
+  const resolvedTopology = topology || _buildMapTopology(renderEntries);
+  for (const edge of (resolvedTopology.edges || [])) {
+    const fromEntry = byMeshNum.get(String(edge.from));
+    const toEntry = byMeshNum.get(String(edge.to));
+    if (!fromEntry || !toEntry) continue;
+    const opacity = edge.dashed
+      ? 0.5
+      : (edge.snr == null ? 0.5 : Math.max(0.3, Math.min(0.9, 0.45 + edge.snr / 20)));
+    const line = L.polyline(
+      [[fromEntry.lat, fromEntry.lon], [toEntry.lat, toEntry.lon]],
+      {
+        color: edge.color || "#4a9eff",
+        weight: edge.dashed ? 1.5 : 2,
+        opacity,
+        interactive: false,
+        dashArray: edge.dashed ? "6 5" : undefined,
+      },
+    ).addTo(_mapInstance);
     _mapLines.push(line);
-  }
-
-  const onlineNodes = withPos.filter((node) => !!node.online);
-  if (onlineNodes.length === 0) return;
-
-  // Build meshNum lookup
-  const byMeshNum = {};
-  for (const node of onlineNodes) {
-    if (node.meshNum != null) byMeshNum[String(node.meshNum)] = node;
-  }
-
-  // Р Р†Р вЂљРІР‚Сњ Real topology from NEIGHBORINFO_APP (solid, colored by SNR) Р Р†Р вЂљРІР‚Сњ
-  const hasNeighbors = new Set();
-  for (const node of onlineNodes) {
-    if (!node.neighbors || node.neighbors.length === 0) continue;
-    if (node.meshNum != null) hasNeighbors.add(String(node.meshNum));
-    for (const nb of node.neighbors) {
-      const nbNode = byMeshNum[String(nb.nodeId || "")];
-      if (!nbNode) continue;
-      const snr = nb.snr ?? null;
-      drawLine(node.latitude, node.longitude, nbNode.latitude, nbNode.longitude, snr, _snrToColor(snr));
-    }
-  }
-
-  // Р Р†Р вЂљРІР‚Сњ Observed relay links from packet relayNode field (solid orange, fw 2.3+) Р Р†Р вЂљРІР‚Сњ
-  for (const link of latestMeshLinks) {
-    const fromNode = byMeshNum[String(link.from || "")];
-    const viaNode = byMeshNum[String(link.via || "")];
-    if (!fromNode || !viaNode) continue;
-    const snr = link.snr ?? null;
-    // sender Р Р†РІР‚В РІР‚Сњ relay: draw both legs if via has position
-    drawLine(fromNode.latitude, fromNode.longitude, viaNode.latitude, viaNode.longitude, snr, _snrToColor(snr));
-    if (fromNode.meshNum != null) hasNeighbors.add(String(fromNode.meshNum));
-    if (viaNode.meshNum != null) hasNeighbors.add(String(viaNode.meshNum));
-  }
-
-  // Р Р†Р вЂљРІР‚Сњ hopsAway fallback (dashed) for nodes without NEIGHBORINFO data Р Р†Р вЂљРІР‚Сњ
-  const ourNode = onlineNodes.find((n) => n.hopsAway === 0);
-  if (!ourNode) return;
-
-  const hop1 = onlineNodes.filter((n) => n.hopsAway === 1 && !hasNeighbors.has(String(n.meshNum ?? "")));
-  const hop1All = onlineNodes.filter((n) => n.hopsAway === 1);
-  const hop2 = onlineNodes.filter((n) => n.hopsAway === 2 && !hasNeighbors.has(String(n.meshNum ?? "")));
-
-  // Direct nodes (1 hop) Р Р†Р вЂљРІР‚Сњ dashed blue
-  for (const node of hop1) {
-    drawLine(ourNode.latitude, ourNode.longitude, node.latitude, node.longitude, node.snr ?? null, "#4a9eff", true);
-  }
-
-  // Relayed nodes (2 hops) Р Р†Р вЂљРІР‚Сњ connect to geographically nearest hop1, dashed purple
-  for (const node of hop2) {
-    if (hop1All.length === 0) continue;
-    let relay = hop1All[0];
-    let minDist = Infinity;
-    for (const h1 of hop1All) {
-      const d = _haversineKm(h1.latitude, h1.longitude, node.latitude, node.longitude);
-      if (d < minDist) { minDist = d; relay = h1; }
-    }
-    // relay Р Р†РІР‚В РІР‚в„ў ourNode link (may already be drawn above)
-    drawLine(ourNode.latitude, ourNode.longitude, relay.latitude, relay.longitude, relay.snr ?? null, "#4a9eff", true);
-    // relay Р Р†РІР‚В РІР‚в„ў hop2 node
-    drawLine(relay.latitude, relay.longitude, node.latitude, node.longitude, node.snr ?? null, "#b06fff", true);
   }
 }
 
