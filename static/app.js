@@ -14,6 +14,10 @@ const copyAllLogButton = document.getElementById("copyAllLogButton");
 const chatForm = document.getElementById("chatForm");
 const chatReplyText = document.getElementById("chatReplyText");
 const chatText = document.getElementById("chatText");
+const chatCommandButton = document.getElementById("chatCommandButton");
+const chatCommandMenu = document.getElementById("chatCommandMenu");
+const chatCommandLauncher = chatCommandButton ? chatCommandButton.closest(".chat-command-launcher") : null;
+const chatCommandItems = Array.from(document.querySelectorAll("[data-chat-command]"));
 const chatSubtitle = document.getElementById("chatSubtitle");
 const chatModeAiButton = document.getElementById("chatModeAiButton");
 const chatModeDmButton = document.getElementById("chatModeDmButton");
@@ -289,6 +293,7 @@ const CHAT_CHANNELS_STORAGE_KEY = "blackbox.chat.channels";
 const CHAT_PLACEHOLDER_AI = "Write a message. Enter to send, Shift+Enter for new line.";
 const CHAT_PLACEHOLDER_DM = "Write a DM to selected node. Enter to send, Shift+Enter for new line.";
 const CHAT_PLACEHOLDER_CHANS = "Write a channel message. Enter to send, Shift+Enter for new line.";
+const CHAT_AI_COMMANDS = new Set(["/summary", "/weather", "/activity", "/battery"]);
 const DEFAULT_CHAT_CHANNELS = [
   { id: "primary", name: "Primary Channel", channelIndex: 0 },
 ];
@@ -400,6 +405,42 @@ function copyWithFeedback(btn, text) {
       btn.style.opacity = "";
     }, 1500);
   }).catch(() => {});
+}
+
+function setChatCommandMenuOpen(open) {
+  if (!chatCommandButton || !chatCommandMenu) {
+    return;
+  }
+  const isAiMode = chatState.mode === CHAT_MODE_AI;
+  const next = Boolean(open && isAiMode);
+  chatCommandMenu.hidden = !next;
+  chatCommandButton.classList.toggle("is-active", next);
+  chatCommandButton.setAttribute("aria-expanded", String(next));
+}
+
+function syncChatCommandUi() {
+  if (!chatCommandButton) {
+    return;
+  }
+  const isAiMode = chatState.mode === CHAT_MODE_AI;
+  if (chatCommandLauncher) {
+    chatCommandLauncher.classList.toggle("hidden", !isAiMode);
+  }
+  chatCommandButton.classList.toggle("hidden", !isAiMode);
+  chatCommandButton.disabled = !isAiMode;
+  if (!isAiMode) {
+    setChatCommandMenuOpen(false);
+  }
+}
+
+function applyAiSlashCommand(command) {
+  const value = String(command || "").trim();
+  if (!chatText || !chatForm || !CHAT_AI_COMMANDS.has(value) || chatState.mode !== CHAT_MODE_AI) {
+    return;
+  }
+  chatText.value = value;
+  setChatCommandMenuOpen(false);
+  chatForm.requestSubmit();
 }
 
 function appendLog(message) {
@@ -1400,6 +1441,7 @@ function setChatMode(mode, { focusInput = false } = {}) {
         ? CHAT_PLACEHOLDER_CHANS
         : CHAT_PLACEHOLDER_AI;
   }
+  syncChatCommandUi();
 
   if (isDm && !chatState.selectedPeer && chatPeerSelect) {
     const firstPeer = Array.from(chatPeerSelect.options).find((option) => option.value);
@@ -5546,9 +5588,41 @@ if (clearChatButton) {
 }
 
 chatText.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && chatCommandMenu && !chatCommandMenu.hidden) {
+    event.preventDefault();
+    setChatCommandMenuOpen(false);
+    return;
+  }
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     chatForm.requestSubmit();
+  }
+});
+
+if (chatCommandButton) {
+  chatCommandButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    setChatCommandMenuOpen(chatCommandMenu?.hidden);
+  });
+}
+
+chatCommandItems.forEach((item) => {
+  item.addEventListener("click", () => {
+    applyAiSlashCommand(item.dataset.chatCommand || "");
+  });
+});
+
+document.addEventListener("click", (event) => {
+  if (!chatCommandMenu || chatCommandMenu.hidden) {
+    return;
+  }
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+  const insideLauncher = chatCommandMenu.contains(target) || chatCommandButton?.contains(target);
+  if (!insideLauncher) {
+    setChatCommandMenuOpen(false);
   }
 });
 

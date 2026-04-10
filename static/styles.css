@@ -788,15 +788,99 @@ select {
 
 .chat-compose {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
   align-items: stretch;
   margin-top: 8px;
 }
 
-.chat-compose > button {
+.chat-compose-actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 42px;
+  column-gap: 6px;
+  align-items: stretch;
+}
+
+.chat-compose-actions > button,
+.chat-compose-actions > .chat-command-launcher {
+  width: 42px;
+}
+
+.chat-compose-actions > button {
   height: 42px;
   align-self: stretch;
+}
+
+.chat-command-launcher {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.chat-command-button {
+  min-width: 42px;
+  max-width: 42px;
+  width: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  height: 42px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  color: #d9ebff;
+  background: #34404d;
+}
+
+.chat-command-button.is-active {
+  background: #556271;
+  color: #f2f8ff;
+}
+
+.chat-command-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  width: 260px;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  background: #171d24;
+  border-top: 2px solid var(--edge-light);
+  border-left: 2px solid var(--edge-light);
+  border-right: 2px solid var(--edge-dark);
+  border-bottom: 2px solid var(--edge-dark);
+  z-index: 30;
+}
+
+.chat-command-item {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  padding: 7px 8px;
+  text-align: left;
+  background: #26303a;
+  color: #e6eef7;
+}
+
+.chat-command-item:hover {
+  background: #31404f;
+}
+
+.chat-command-item-name {
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+.chat-command-item-desc {
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--muted);
 }
 
 .chat-compose-cashu-btn {
@@ -815,7 +899,14 @@ select {
 
 .chat-send-button {
   min-width: 42px;
+  max-width: 42px;
+  width: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  height: 42px;
   padding: 0;
+  display: inline-grid;
+  place-items: center;
 }
 
 .chat-send-button svg {
@@ -834,6 +925,9 @@ select {
   max-height: 120px;
   padding-top: 10px;
   padding-bottom: 10px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   background:
     linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px),
@@ -842,6 +936,11 @@ select {
     18px 18px,
     18px 18px,
     auto;
+}
+
+.chat-compose textarea::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 #chatText:focus,

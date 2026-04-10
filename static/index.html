@@ -165,18 +165,41 @@
           </div>
           <div class="chat-compose">
             <textarea id="chatText" rows="3" placeholder="Write a message. Enter to send, Shift+Enter for new line."></textarea>
-            <button id="chatPeerCashuButton" type="button" class="node-action-btn node-action-cashu chat-compose-cashu-btn" title="Send Cashu" aria-label="Send Cashu to selected node" disabled>
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <circle cx="12" cy="12" r="7"></circle>
-                <path d="M12 8v8M9 10h6M9 14h6"></path>
-              </svg>
-            </button>
-            <button type="submit" class="chat-send-button" title="Send" aria-label="Send message">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M12 18V6"></path>
-                <path d="M7 11l5-5 5 5"></path>
-              </svg>
-            </button>
+            <div class="chat-compose-actions">
+              <button id="chatPeerCashuButton" type="button" class="node-action-btn node-action-cashu chat-compose-cashu-btn" title="Send Cashu" aria-label="Send Cashu to selected node" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <circle cx="12" cy="12" r="7"></circle>
+                  <path d="M12 8v8M9 10h6M9 14h6"></path>
+                </svg>
+              </button>
+              <div class="chat-command-launcher">
+                <button id="chatCommandButton" type="button" class="node-action-btn chat-command-button" title="AI commands" aria-label="Open AI commands" aria-haspopup="true" aria-expanded="false">/</button>
+                <div id="chatCommandMenu" class="chat-command-menu" hidden>
+                  <button type="button" class="chat-command-item" data-chat-command="/summary">
+                    <span class="chat-command-item-name">/summary</span>
+                    <span class="chat-command-item-desc">AI network summary from telemetry</span>
+                  </button>
+                  <button type="button" class="chat-command-item" data-chat-command="/weather">
+                    <span class="chat-command-item-name">/weather</span>
+                    <span class="chat-command-item-desc">AI weather summary from node readings</span>
+                  </button>
+                  <button type="button" class="chat-command-item" data-chat-command="/activity">
+                    <span class="chat-command-item-name">/activity</span>
+                    <span class="chat-command-item-desc">AI activity summary from recent events</span>
+                  </button>
+                  <button type="button" class="chat-command-item" data-chat-command="/battery">
+                    <span class="chat-command-item-name">/battery</span>
+                    <span class="chat-command-item-desc">AI battery summary across nodes</span>
+                  </button>
+                </div>
+              </div>
+              <button type="submit" class="chat-send-button" title="Send" aria-label="Send message">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 18V6"></path>
+                  <path d="M7 11l5-5 5 5"></path>
+                </svg>
+              </button>
+            </div>
           </div>
         </form>
       </article>

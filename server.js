@@ -187,6 +187,8 @@ const MESH_ACK_RETRY_COUNT = 1;
 const MESH_ACK_RETRY_DELAY_MS = 1800;
 const WEATHER_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const NODE_ONLINE_MAX_AGE_MS = 5 * 60 * 1000;
+const SUMMARY_ACTIVITY_WINDOW_MS = 60 * 60 * 1000;
+const SUMMARY_STALE_NODE_AGE_MS = 30 * 60 * 1000;
 const NODES_STATUS_PUSH_INTERVAL_MS = 60 * 1000;
 const MIN_VALID_MODEL_BYTES = 1024 * 1024;
 
@@ -2208,6 +2210,468 @@ function buildMeshSystemPrompt(aiSettings) {
   );
 }
 
+function getNodeDisplayName(node) {
+  return String(node?.longName || node?.shortName || node?.userId || node?.id || "unknown").trim() || "unknown";
+}
+
+function getNodeLastSeenMs(node) {
+  const stamp = node?.lastSeenAt || node?.lastHeard || null;
+  if (!stamp) {
+    return null;
+  }
+  const value = typeof stamp === "number" ? stamp * 1000 : new Date(stamp).getTime();
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatAgeMs(ms) {
+  if (!Number.isFinite(ms) || ms < 0) {
+    return "unknown";
+  }
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (hours < 24) return remMinutes ? `${hours}h ${remMinutes}m ago` : `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours ? `${days}d ${remHours}h ago` : `${days}d ago`;
+}
+
+function toFiniteNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function summarizeNodeWeather(node) {
+  if (!hasRealWeatherData(node)) {
+    return null;
+  }
+  const parts = [];
+  if (node.weather.temperature != null && node.weather.temperature !== "") parts.push(`temp ${node.weather.temperature}`);
+  if (node.weather.humidity != null && node.weather.humidity !== "") parts.push(`humidity ${node.weather.humidity}%`);
+  if (node.weather.pressure != null && node.weather.pressure !== "") parts.push(`pressure ${node.weather.pressure}`);
+  if (node.weather.wind != null && node.weather.wind !== "") parts.push(`wind ${node.weather.wind}`);
+  return parts.length ? parts.join(", ") : String(node.weather.summary || "").trim() || null;
+}
+
+function classifyApproxNetworkLoad(totalEvents, onlineNodes) {
+  const safeOnline = Math.max(onlineNodes || 0, 1);
+  const eventsPerOnlineNode = totalEvents / safeOnline;
+  if (totalEvents >= 160 || eventsPerOnlineNode >= 18) return "high";
+  if (totalEvents >= 60 || eventsPerOnlineNode >= 6) return "moderate";
+  return "low";
+}
+
+function classifyNetworkHealth(totalNodes, onlineNodes, lowBatteryCount, staleNodeCount) {
+  if (totalNodes <= 0) return "unknown";
+  const onlineRatio = onlineNodes / totalNodes;
+  if (onlineRatio >= 0.8 && lowBatteryCount === 0 && staleNodeCount <= Math.max(1, Math.floor(totalNodes * 0.15))) {
+    return "good";
+  }
+  if (onlineRatio >= 0.5) {
+    return "fair";
+  }
+  return "degraded";
+}
+
+function buildRecentActivitySnapshot(windowMs = SUMMARY_ACTIVITY_WINDOW_MS) {
+  const since = Date.now() - windowMs;
+  const recentMessages = messages.filter((message) => {
+    const createdAt = new Date(message.createdAt || 0).getTime();
+    return Number.isFinite(createdAt) && createdAt >= since;
+  });
+  const telemetryEvents = recentMessages.filter((message) => message.transport === "telemetry").length;
+  const takEvents = recentMessages.filter((message) => message.transport === "tak").length;
+  const meshMessages = recentMessages.filter((message) => {
+    const transport = String(message.transport || "");
+    return transport === "mesh" || transport === "web" || transport === "radio";
+  }).length;
+  const directMessages = recentMessages.filter((message) => {
+    const recipient = String(message.recipient || "");
+    return recipient && recipient !== "^all" && recipient !== "local-ai";
+  }).length;
+  return {
+    windowMinutes: Math.round(windowMs / 60000),
+    totalEvents: recentMessages.length,
+    telemetryEvents,
+    takEvents,
+    meshMessages,
+    directMessages,
+  };
+}
+
+function buildSummaryCommandContext() {
+  const payload = getNodesPayload();
+  const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+  const now = Date.now();
+  const onlineNodes = nodes.filter((node) => node.online);
+  const offlineNodes = nodes.filter((node) => !node.online);
+  const liveNodes = nodes.filter((node) => node.live);
+  const lowBatteryNodes = nodes
+    .filter((node) => Number.isFinite(Number(node.batteryLevel)) && Number(node.batteryLevel) > 0 && Number(node.batteryLevel) <= 20)
+    .sort((a, b) => Number(a.batteryLevel) - Number(b.batteryLevel))
+    .map((node) => ({
+      id: node.id,
+      name: getNodeDisplayName(node),
+      batteryLevel: Number(node.batteryLevel),
+      online: Boolean(node.online),
+      lastSeen: node.lastSeenAt || node.lastHeard || null,
+      age: formatAgeMs(now - (getNodeLastSeenMs(node) || now)),
+    }));
+  const staleNodes = nodes
+    .filter((node) => {
+      const lastSeenMs = getNodeLastSeenMs(node);
+      return lastSeenMs != null && now - lastSeenMs > SUMMARY_STALE_NODE_AGE_MS;
+    })
+    .sort((a, b) => (getNodeLastSeenMs(a) || 0) - (getNodeLastSeenMs(b) || 0))
+    .map((node) => ({
+      id: node.id,
+      name: getNodeDisplayName(node),
+      online: Boolean(node.online),
+      lastSeen: node.lastSeenAt || node.lastHeard || null,
+      age: formatAgeMs(now - (getNodeLastSeenMs(node) || now)),
+    }));
+  const recentActivity = buildRecentActivitySnapshot();
+  const weatherNodes = nodes.filter((node) => hasRealWeatherData(node));
+  const freshWeatherNodes = weatherNodes.filter((node) => isFreshWeather(node));
+  const networkHealth = classifyNetworkHealth(nodes.length, onlineNodes.length, lowBatteryNodes.length, staleNodes.length);
+  const approxLoad = classifyApproxNetworkLoad(recentActivity.totalEvents, onlineNodes.length);
+  return {
+    generatedAt: new Date().toISOString(),
+    network: {
+      totalNodes: nodes.length,
+      onlineNodes: onlineNodes.length,
+      offlineNodes: offlineNodes.length,
+      liveNodes: liveNodes.length,
+      activeLinks: Array.isArray(payload.meshLinks) ? payload.meshLinks.length : 0,
+      health: networkHealth,
+      approxLoad,
+    },
+    activity: recentActivity,
+    weatherCoverage: {
+      nodesWithWeather: weatherNodes.length,
+      freshWeatherNodes: freshWeatherNodes.length,
+      staleWeatherNodes: Math.max(0, weatherNodes.length - freshWeatherNodes.length),
+    },
+    lowBatteryNodes: lowBatteryNodes.slice(0, 8),
+    staleNodes: staleNodes.slice(0, 8),
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      name: getNodeDisplayName(node),
+      role: node.role || "generic",
+      online: Boolean(node.online),
+      live: Boolean(node.live),
+      lastSeen: node.lastSeenAt || node.lastHeard || null,
+      age: formatAgeMs(now - (getNodeLastSeenMs(node) || now)),
+      batteryLevel: node.batteryLevel ?? null,
+      voltage: node.voltage ?? null,
+      snr: node.snr ?? null,
+      hopsAway: node.hopsAway ?? null,
+      neighborCount: Array.isArray(node.neighbors) ? node.neighbors.length : 0,
+      observedPorts: Array.isArray(node.observedPortnums) ? node.observedPortnums : [],
+      weather: summarizeNodeWeather(node),
+    })),
+  };
+}
+
+function buildWeatherCommandContext() {
+  const payload = getNodesPayload();
+  const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+  const now = Date.now();
+  const weatherNodes = nodes
+    .filter((node) => hasRealWeatherData(node))
+    .sort((a, b) => new Date(b.weather?.capturedAt || b.lastSeenAt || 0).getTime() - new Date(a.weather?.capturedAt || a.lastSeenAt || 0).getTime());
+  const freshNodes = weatherNodes.filter((node) => isFreshWeather(node));
+  const preferredNodes = freshNodes.length ? freshNodes : weatherNodes;
+
+  const temperatures = preferredNodes.map((node) => toFiniteNumber(node.weather?.temperature)).filter((value) => value != null);
+  const humidities = preferredNodes.map((node) => toFiniteNumber(node.weather?.humidity)).filter((value) => value != null);
+  const pressures = preferredNodes.map((node) => toFiniteNumber(node.weather?.pressure)).filter((value) => value != null);
+  const winds = preferredNodes.map((node) => toFiniteNumber(node.weather?.wind)).filter((value) => value != null);
+
+  const buildRange = (values) => {
+    if (!values.length) return null;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return min === max ? { min, max, text: `${min}` } : { min, max, text: `${min}..${max}` };
+  };
+
+  return {
+    generatedAt: new Date().toISOString(),
+    weather: {
+      totalSources: weatherNodes.length,
+      freshSources: freshNodes.length,
+      staleSources: Math.max(0, weatherNodes.length - freshNodes.length),
+      usingHistoricalFallback: weatherNodes.length > 0 && freshNodes.length === 0,
+      bestSource: preferredNodes[0]
+        ? {
+            id: preferredNodes[0].id,
+            name: getNodeDisplayName(preferredNodes[0]),
+            online: Boolean(preferredNodes[0].online),
+            capturedAt: preferredNodes[0].weather?.capturedAt || preferredNodes[0].lastSeenAt || null,
+            age: formatAgeMs(now - (new Date(preferredNodes[0].weather?.capturedAt || preferredNodes[0].lastSeenAt || 0).getTime() || now)),
+            summary: summarizeNodeWeather(preferredNodes[0]),
+          }
+        : null,
+      ranges: {
+        temperature: buildRange(temperatures),
+        humidity: buildRange(humidities),
+        pressure: buildRange(pressures),
+        wind: buildRange(winds),
+      },
+    },
+    sources: weatherNodes.map((node) => ({
+      id: node.id,
+      name: getNodeDisplayName(node),
+      online: Boolean(node.online),
+      fresh: isFreshWeather(node),
+      capturedAt: node.weather?.capturedAt || node.lastSeenAt || null,
+      age: formatAgeMs(now - (new Date(node.weather?.capturedAt || node.lastSeenAt || 0).getTime() || now)),
+      summary: summarizeNodeWeather(node),
+    })),
+  };
+}
+
+function buildActivityCommandContext() {
+  const payload = getNodesPayload();
+  const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+  const onlineNodes = nodes.filter((node) => node.online);
+  const activity = buildRecentActivitySnapshot();
+  const approxLoad = classifyApproxNetworkLoad(activity.totalEvents, onlineNodes.length);
+  const recentActiveNodes = nodes
+    .filter((node) => {
+      const lastSeenMs = getNodeLastSeenMs(node);
+      return lastSeenMs != null && Date.now() - lastSeenMs <= SUMMARY_ACTIVITY_WINDOW_MS;
+    })
+    .sort((a, b) => (getNodeLastSeenMs(b) || 0) - (getNodeLastSeenMs(a) || 0))
+    .slice(0, 10)
+    .map((node) => ({
+      id: node.id,
+      name: getNodeDisplayName(node),
+      role: node.role || "generic",
+      online: Boolean(node.online),
+      age: formatAgeMs(Date.now() - (getNodeLastSeenMs(node) || Date.now())),
+      observedPorts: Array.isArray(node.observedPortnums) ? node.observedPortnums : [],
+    }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    network: {
+      totalNodes: nodes.length,
+      onlineNodes: onlineNodes.length,
+      activeLinks: Array.isArray(payload.meshLinks) ? payload.meshLinks.length : 0,
+      approxLoad,
+    },
+    activity,
+    recentActiveNodes,
+  };
+}
+
+function buildBatteryCommandContext() {
+  const payload = getNodesPayload();
+  const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+  const now = Date.now();
+  const batteryNodes = nodes
+    .filter((node) => Number.isFinite(Number(node.batteryLevel)) && Number(node.batteryLevel) >= 0)
+    .map((node) => ({
+      id: node.id,
+      name: getNodeDisplayName(node),
+      online: Boolean(node.online),
+      batteryLevel: Number(node.batteryLevel),
+      voltage: node.voltage ?? null,
+      age: formatAgeMs(now - (getNodeLastSeenMs(node) || now)),
+      role: node.role || "generic",
+    }))
+    .sort((a, b) => a.batteryLevel - b.batteryLevel);
+
+  const criticalNodes = batteryNodes.filter((node) => node.batteryLevel <= 10);
+  const lowNodes = batteryNodes.filter((node) => node.batteryLevel > 10 && node.batteryLevel <= 20);
+  const healthyNodes = batteryNodes.filter((node) => node.batteryLevel > 20);
+  const averageBattery = batteryNodes.length
+    ? Math.round(batteryNodes.reduce((sum, node) => sum + node.batteryLevel, 0) / batteryNodes.length)
+    : null;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    battery: {
+      totalReported: batteryNodes.length,
+      criticalCount: criticalNodes.length,
+      lowCount: lowNodes.length,
+      healthyCount: healthyNodes.length,
+      averageBattery,
+    },
+    criticalNodes: criticalNodes.slice(0, 8),
+    lowNodes: lowNodes.slice(0, 8),
+    strongestNodes: healthyNodes.slice(-5).reverse(),
+    nodes: batteryNodes.slice(0, 20),
+  };
+}
+
+function parseLocalSlashCommand(prompt) {
+  const normalized = String(prompt || "").trim();
+  if (!normalized.startsWith("/")) {
+    return null;
+  }
+  const command = normalized.split(/\s+/, 1)[0].toLowerCase();
+  if (command === "/summary" || command === "/weather" || command === "/activity" || command === "/battery") {
+    return { name: command, raw: normalized };
+  }
+  return null;
+}
+
+function buildSlashCommandSystemPrompt(commandName) {
+  if (commandName === "/weather") {
+    return [
+      "You are an operations assistant for an offline Meshtastic network dashboard.",
+      "You are given structured telemetry about weather and environment observations collected from nodes.",
+      "Summarize only the supplied data. Do not invent sensors, forecasts, or internet weather.",
+      "Prefer fresh weather data, but if none is fresh then explicitly fall back to the latest known historical data, including offline nodes.",
+      "Call out data freshness clearly, mention the best source, and keep the answer compact and practical.",
+      "Reply in the same language as the user if it is evident; otherwise use English.",
+    ].join(" ");
+  }
+  if (commandName === "/activity") {
+    return [
+      "You are an operations assistant for an offline Meshtastic network dashboard.",
+      "You are given structured telemetry about recent message flow and node activity.",
+      "Summarize only the supplied data. Do not invent RF throughput or packet utilization metrics.",
+      "Treat 'approxLoad' as a coarse activity estimate based on observed recent events.",
+      "Produce a short operational summary of how active the network is right now, what kinds of events dominate, and whether anything looks unusually quiet or busy.",
+      "Reply in the same language as the user if it is evident; otherwise use English.",
+    ].join(" ");
+  }
+  if (commandName === "/battery") {
+    return [
+      "You are an operations assistant for an offline Meshtastic network dashboard.",
+      "You are given structured telemetry about node battery levels and freshness.",
+      "Summarize only the supplied data. Do not invent charge trends or power consumption not present in the data.",
+      "Highlight critical and low-battery nodes first, mention the overall battery picture, and keep the answer concise and practical.",
+      "Reply in the same language as the user if it is evident; otherwise use English.",
+    ].join(" ");
+  }
+  return [
+    "You are an operations assistant for an offline Meshtastic network dashboard.",
+    "You are given structured telemetry about node presence, activity, battery state, and recent message flow.",
+    "Summarize only the supplied data. Do not invent topology, packet loss, or utilization metrics that are not present.",
+    "Treat 'approxLoad' as a coarse activity estimate based on recent observed events, not a measured RF utilization value.",
+    "Produce a short network summary with online/offline counts, overall health, approximate activity, and the main issues worth checking.",
+    "Reply in the same language as the user if it is evident; otherwise use English.",
+  ].join(" ");
+}
+
+function buildSlashCommandFallback(commandName, context) {
+  if (commandName === "/weather") {
+    if (!context.weather.totalSources) {
+      return "No weather telemetry available yet. No fresh or historical node weather data was found.";
+    }
+    const best = context.weather.bestSource;
+    const freshness = context.weather.freshSources
+      ? `${context.weather.freshSources} fresh source(s)`
+      : "No fresh weather data, using the latest known readings";
+    const rangeBits = [];
+    if (context.weather.ranges.temperature?.text) rangeBits.push(`temp ${context.weather.ranges.temperature.text}`);
+    if (context.weather.ranges.humidity?.text) rangeBits.push(`humidity ${context.weather.ranges.humidity.text}%`);
+    if (context.weather.ranges.pressure?.text) rangeBits.push(`pressure ${context.weather.ranges.pressure.text}`);
+    if (context.weather.ranges.wind?.text) rangeBits.push(`wind ${context.weather.ranges.wind.text}`);
+    return trimResponse([
+      freshness,
+      best ? `Best source: ${best.name} (${best.age}, ${best.online ? "online" : "offline"})` : null,
+      best?.summary ? `Latest reading: ${best.summary}` : null,
+      rangeBits.length ? `Observed range: ${rangeBits.join(", ")}` : null,
+    ].filter(Boolean).join(". ") + ".");
+  }
+  if (commandName === "/activity") {
+    const activeNodes = context.recentActiveNodes.length
+      ? `Recently active nodes: ${context.recentActiveNodes.map((node) => node.name).join(", ")}.`
+      : "No recently active nodes recorded in the current activity window.";
+    return trimResponse(
+      `Approximate activity is ${context.network.approxLoad} based on ${context.activity.totalEvents} recent events in the last ${context.activity.windowMinutes} minutes. ` +
+      `Telemetry events: ${context.activity.telemetryEvents}, mesh messages: ${context.activity.meshMessages}, direct messages: ${context.activity.directMessages}, TAK events: ${context.activity.takEvents}. ` +
+      `${activeNodes}`
+    );
+  }
+  if (commandName === "/battery") {
+    if (!context.battery.totalReported) {
+      return "No battery telemetry available yet. No nodes have reported battery levels.";
+    }
+    const critical = context.criticalNodes.length
+      ? `Critical: ${context.criticalNodes.map((node) => `${node.name} ${node.batteryLevel}%`).join(", ")}.`
+      : "No critical battery nodes.";
+    const low = context.lowNodes.length
+      ? `Low: ${context.lowNodes.map((node) => `${node.name} ${node.batteryLevel}%`).join(", ")}.`
+      : "No additional low-battery nodes.";
+    return trimResponse(
+      `${context.battery.totalReported} nodes reported battery. Average battery is ${context.battery.averageBattery}%. ` +
+      `${critical} ${low}`
+    );
+  }
+
+  const lowBattery = context.lowBatteryNodes.length
+    ? `Low battery: ${context.lowBatteryNodes.map((node) => `${node.name} ${node.batteryLevel}%`).join(", ")}.`
+    : "No low-battery nodes flagged.";
+  const stale = context.staleNodes.length
+    ? `Stale telemetry: ${context.staleNodes.map((node) => `${node.name} (${node.age})`).join(", ")}.`
+    : "No major telemetry staleness detected.";
+  return trimResponse(
+    `${context.network.totalNodes} nodes known, ${context.network.onlineNodes} online, ${context.network.offlineNodes} offline. ` +
+    `Network health looks ${context.network.health}. Approximate activity is ${context.network.approxLoad} based on ${context.activity.totalEvents} recent events in the last ${context.activity.windowMinutes} minutes. ` +
+    `${lowBattery} ${stale}`
+  );
+}
+
+async function generateSlashCommandReply(peerId, slashCommand) {
+  const aiSettings = getAiSettingsPayload();
+  let context;
+  if (slashCommand.name === "/weather") {
+    context = buildWeatherCommandContext();
+  } else if (slashCommand.name === "/activity") {
+    context = buildActivityCommandContext();
+  } else if (slashCommand.name === "/battery") {
+    context = buildBatteryCommandContext();
+  } else {
+    context = buildSummaryCommandContext();
+  }
+  const fallback = buildSlashCommandFallback(slashCommand.name, context);
+
+  try {
+    const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: currentModelName,
+        messages: [
+          { role: "system", content: buildSlashCommandSystemPrompt(slashCommand.name) },
+          {
+            role: "user",
+            content: `Command: ${slashCommand.name}\nOriginal input: ${slashCommand.raw}\nStructured telemetry context:\n${JSON.stringify(context, null, 2)}`,
+          },
+        ],
+        temperature: Math.min(aiSettings.localTemperature, 0.3),
+        top_p: aiSettings.localTopP,
+        max_tokens: Math.min(aiSettings.localMaxTokens, 320),
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      return fallback;
+    }
+
+    const payload = await response.json();
+    const reply = String(payload.choices?.[0]?.message?.content || "").replace(/\s+/g, " ").trim();
+    return reply ? trimResponse(reply) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function addMessage(entry) {
   const item = {
     id: Date.now() + Math.random(),
@@ -3971,6 +4435,11 @@ function trimResponseSafe(text) {
 }
 
 async function generateReply(peerId, prompt) {
+  const slashCommand = parseLocalSlashCommand(prompt);
+  if (slashCommand) {
+    return generateSlashCommandReply(peerId, slashCommand);
+  }
+
   const history = getHistory(peerId);
   const aiSettings = getAiSettingsPayload();
   const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
@@ -4101,6 +4570,11 @@ function sanitizeMeshReply(text) {
 }
 
 async function generateMeshReply(peerId, prompt) {
+  const slashCommand = parseLocalSlashCommand(prompt);
+  if (slashCommand) {
+    return generateSlashCommandReply(peerId, slashCommand);
+  }
+
   const history = getHistory(peerId);
   const aiSettings = getAiSettingsPayload();
   const response = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
