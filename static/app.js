@@ -273,6 +273,7 @@ let swapLnPollInterval = null;
 let showingDonateView = false;
 let latestMeshtasticConnected = false;
 let latestMessages = [];
+let latestLogs = [];
 let latestNodes = [];
 let latestMeshLinks = [];
 const unreadPeers = new Set(); // peer IDs with unread incoming messages
@@ -3319,7 +3320,7 @@ function openNodesMap() {
         `<button id="mapToggleTooltips" class="nodes-map-toggle-btn nodes-map-toggle-btn--active" title="Node tooltips on hover">` +
           `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>` +
         `</button>` +
-        `<button id="mapToggleRadius" class="nodes-map-toggle-btn" title="Signal radius">radius</button>` +
+        `<button id="mapToggleRadius" class="nodes-map-toggle-btn" title="Estimated radio range">radius</button>` +
         `<button id="mapToggleLinks" class="nodes-map-toggle-btn" title="Connection lines">links</button>` +
         `<button id="mapToggleRole" class="nodes-map-toggle-btn" title="Color by role">role</button>` +
         `<button id="mapToggleTak" class="nodes-map-toggle-btn" title="TAK / ATAK layers">TAK</button>` +
@@ -4554,7 +4555,7 @@ function _renderMapNodes(fitBounds = true) {
 
   _clearHoverLines();
 
-  if (_mapShowRadius) _renderMapRadius(withPos);
+  if (_mapShowRadius) _renderMapRadius(withPos, allByMeshNum, reverseLookup);
   if (_mapShowLinks) _renderMapLinks(withPos);
 
   // Built after renderEntries is ready (closures read these by reference at call-time)
@@ -4585,6 +4586,11 @@ function _renderMapNodes(fitBounds = true) {
     const roleColorStyle = _mapColorByRole
       ? ` style="background:${_getRoleColor(node)};border-color:rgba(255,255,255,0.25);box-shadow:0 0 6px ${_getRoleColor(node)}"`
       : "";
+    const rangeEstimate = _estimateNodeRadioRange(node, allByMeshNum, reverseLookup);
+    const rangeLabel = _takEscapeHtml(_takFormatDistance(rangeEstimate.radiusMeters));
+    const rangeSourceLabel = rangeEstimate.source === "observed"
+      ? `observed + ${_takEscapeHtml(rangeEstimate.presetLabel)}`
+      : _takEscapeHtml(rangeEstimate.presetLabel);
 
     const icon = L.divIcon({
       className: "",
@@ -4601,6 +4607,7 @@ function _renderMapNodes(fitBounds = true) {
       `<div class="nodes-map-popup">` +
       `<div class="nodes-map-popup-name">${label}</div>` +
       `<div class="nodes-map-popup-row">${status} | battery: ${battery}</div>` +
+      `<div class="nodes-map-popup-row">range est: ${rangeLabel} | ${rangeSourceLabel}</div>` +
       (estimated ? `<div class="nodes-map-popup-row nodes-map-popup-row--est">~ position estimated</div>` : "") +
       `</div>`;
 
@@ -4838,25 +4845,228 @@ function _renderMapNodes(fitBounds = true) {
   }
 }
 
-function _snrToRadius(snr) {
-  if (snr == null) return 8000;
-  if (snr > 10) return 15000;
-  if (snr > 0)  return 10000;
-  if (snr > -10) return 6000;
-  return 3000;
+const _MODEM_PRESET_BASE_RANGE_M = Object.freeze({
+  SHORT_TURBO: 1800,
+  SHORT_FAST: 3200,
+  SHORT_SLOW: 4600,
+  MEDIUM_FAST: 6500,
+  MEDIUM_SLOW: 9000,
+  LONG_FAST: 14000,
+  LONG_MODERATE: 20000,
+  LONG_SLOW: 28000,
+  VERY_LONG_SLOW: 40000,
+});
+
+function _clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
-function _renderMapRadius(withPos) {
+function _normalizeModemPresetName(value) {
+  return String(value || "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+}
+
+function _getNetworkModemPreset(allByMeshNum) {
+  const localNode = Object.values(allByMeshNum || {}).find((node) => Number(node?.hopsAway) === 0 && node?.modemPreset);
+  return _normalizeModemPresetName(localNode?.modemPreset || "");
+}
+
+function _getBaseRangeFromPreset(modemPreset, networkPreset = "") {
+  const preset = _normalizeModemPresetName(modemPreset) || networkPreset || "LONG_FAST";
+  if (_MODEM_PRESET_BASE_RANGE_M[preset]) {
+    return { preset, meters: _MODEM_PRESET_BASE_RANGE_M[preset] };
+  }
+  if (preset.includes("VERY_LONG")) return { preset, meters: _MODEM_PRESET_BASE_RANGE_M.VERY_LONG_SLOW };
+  if (preset.includes("LONG") && preset.includes("SLOW")) return { preset, meters: _MODEM_PRESET_BASE_RANGE_M.LONG_SLOW };
+  if (preset.includes("LONG") && preset.includes("MOD")) return { preset, meters: _MODEM_PRESET_BASE_RANGE_M.LONG_MODERATE };
+  if (preset.includes("LONG")) return { preset, meters: _MODEM_PRESET_BASE_RANGE_M.LONG_FAST };
+  if (preset.includes("MEDIUM") && preset.includes("SLOW")) return { preset, meters: _MODEM_PRESET_BASE_RANGE_M.MEDIUM_SLOW };
+  if (preset.includes("MEDIUM")) return { preset, meters: _MODEM_PRESET_BASE_RANGE_M.MEDIUM_FAST };
+  if (preset.includes("SHORT") && preset.includes("TURBO")) return { preset, meters: _MODEM_PRESET_BASE_RANGE_M.SHORT_TURBO };
+  if (preset.includes("SHORT") && preset.includes("SLOW")) return { preset, meters: _MODEM_PRESET_BASE_RANGE_M.SHORT_SLOW };
+  if (preset.includes("SHORT")) return { preset, meters: _MODEM_PRESET_BASE_RANGE_M.SHORT_FAST };
+  return { preset: preset || "LONG_FAST", meters: _MODEM_PRESET_BASE_RANGE_M.LONG_FAST };
+}
+
+function _toFiniteNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function _getNodeRssi(node) {
+  return (
+    _toFiniteNumber(node?.lastPacket?.rxRssi)
+    ?? _toFiniteNumber(node?.raw?.rxRssi)
+    ?? _toFiniteNumber(node?.raw?.lastPacket?.rxRssi)
+  );
+}
+
+function _getNodeTrafficMetrics(node) {
+  const metrics =
+    node?.raw?.deviceMetrics ||
+    node?.lastDecoded?.deviceMetrics ||
+    node?.lastDecoded?.localStats ||
+    {};
+  return {
+    channelUtilization: _toFiniteNumber(metrics.channelUtilization),
+    airUtilTx: _toFiniteNumber(metrics.airUtilTx),
+  };
+}
+
+function _estimateLinkBudgetRangeMeters({
+  snr = null,
+  rssi = null,
+  modemPreset = "",
+  hopsAway = null,
+  online = true,
+  channelUtilization = null,
+  airUtilTx = null,
+  networkPreset = "",
+} = {}) {
+  const { preset, meters: presetMeters } = _getBaseRangeFromPreset(modemPreset, networkPreset);
+  const snrValue = _toFiniteNumber(snr);
+  const rssiValue = _toFiniteNumber(rssi);
+  const hopsValue = _toFiniteNumber(hopsAway);
+  const channelUtil = _toFiniteNumber(channelUtilization);
+  const airUtil = _toFiniteNumber(airUtilTx);
+
+  const snrFactor = snrValue == null
+    ? 0.96
+    : _clampNumber(0.45 + ((snrValue + 20) / 32) * 0.95, 0.35, 1.45);
+  const rssiFactor = rssiValue == null
+    ? 1
+    : _clampNumber(0.55 + ((rssiValue + 125) / 45) * 0.75, 0.45, 1.2);
+  const congestionPenalty = _clampNumber(
+    1
+      - Math.max(0, channelUtil == null ? 0 : (channelUtil / 100) * 0.22)
+      - Math.max(0, airUtil == null ? 0 : (airUtil / 100) * 0.12),
+    0.68,
+    1,
+  );
+  const hopPenalty = hopsValue == null
+    ? 1
+    : (hopsValue <= 0 ? 1 : hopsValue === 1 ? 0.92 : hopsValue === 2 ? 0.78 : 0.64);
+  const onlinePenalty = online ? 1 : 0.85;
+
+  return {
+    radiusMeters: _clampNumber(
+      presetMeters * snrFactor * rssiFactor * congestionPenalty * hopPenalty * onlinePenalty,
+      1200,
+      60000,
+    ),
+    preset,
+    presetMeters,
+  };
+}
+
+function _collectObservedNeighborDistances(node, allByMeshNum, reverseLookup) {
+  const distances = [];
+  const nodeLat = _toFiniteNumber(node?.latitude);
+  const nodeLon = _toFiniteNumber(node?.longitude);
+  const myKey = String(node?.meshNum ?? "");
+
+  if (nodeLat != null && nodeLon != null && nodeLat !== 0 && nodeLon !== 0) {
+    for (const nb of (node?.neighbors || [])) {
+      const anchor = allByMeshNum[String(nb?.nodeId || "")];
+      const anchorLat = _toFiniteNumber(anchor?.latitude);
+      const anchorLon = _toFiniteNumber(anchor?.longitude);
+      if (anchorLat == null || anchorLon == null || anchorLat === 0 || anchorLon === 0) continue;
+      distances.push({
+        distanceMeters: _haversineDistance(nodeLat, nodeLon, anchorLat, anchorLon),
+        snr: _toFiniteNumber(nb?.snr),
+      });
+    }
+  }
+
+  for (const entry of (myKey ? (reverseLookup?.[myKey] || []) : [])) {
+    const anchorNode = entry?.anchorNode;
+    const anchorLat = _toFiniteNumber(anchorNode?.latitude);
+    const anchorLon = _toFiniteNumber(anchorNode?.longitude);
+    if (anchorLat == null || anchorLon == null || anchorLat === 0 || anchorLon === 0) continue;
+    if (nodeLat != null && nodeLon != null && nodeLat !== 0 && nodeLon !== 0) {
+      distances.push({
+        distanceMeters: _haversineDistance(nodeLat, nodeLon, anchorLat, anchorLon),
+        snr: _toFiniteNumber(entry?.snr),
+      });
+    }
+  }
+
+  return distances.filter((item) => item.distanceMeters > 0 && Number.isFinite(item.distanceMeters));
+}
+
+function _estimateNodeRadioRange(node, allByMeshNum = {}, reverseLookup = {}) {
+  const networkPreset = _getNetworkModemPreset(allByMeshNum);
+  const traffic = _getNodeTrafficMetrics(node);
+  const linkBudget = _estimateLinkBudgetRangeMeters({
+    snr: node?.snr,
+    rssi: _getNodeRssi(node),
+    modemPreset: node?.modemPreset,
+    hopsAway: node?.hopsAway,
+    online: !!node?.online,
+    channelUtilization: traffic.channelUtilization,
+    airUtilTx: traffic.airUtilTx,
+    networkPreset,
+  });
+  const observations = _collectObservedNeighborDistances(node, allByMeshNum, reverseLookup);
+  if (!observations.length) {
+    return {
+      radiusMeters: linkBudget.radiusMeters,
+      source: "preset",
+      presetLabel: linkBudget.preset,
+      observedSamples: 0,
+    };
+  }
+
+  const sortedDistances = observations
+    .map((item) => item.distanceMeters)
+    .sort((left, right) => left - right);
+  const maxObserved = sortedDistances[sortedDistances.length - 1];
+  const percentile75 = sortedDistances[Math.floor((sortedDistances.length - 1) * 0.75)];
+  let weightedSum = 0;
+  let totalWeight = 0;
+  for (const observation of observations) {
+    const snrWeight = observation.snr == null
+      ? 1
+      : _clampNumber(0.9 + ((observation.snr + 10) / 20), 0.65, 2.1);
+    weightedSum += observation.distanceMeters * snrWeight;
+    totalWeight += snrWeight;
+  }
+  const weightedAverage = totalWeight > 0 ? weightedSum / totalWeight : maxObserved;
+  const observedRadius = Math.max(maxObserved * 1.08, percentile75 * 1.18, weightedAverage * 1.15);
+  const observedBlend = observations.length >= 3 ? 0.74 : observations.length === 2 ? 0.66 : 0.58;
+
+  return {
+    radiusMeters: _clampNumber(
+      (observedRadius * observedBlend) + (linkBudget.radiusMeters * (1 - observedBlend)),
+      1200,
+      60000,
+    ),
+    source: "observed",
+    presetLabel: linkBudget.preset,
+    observedSamples: observations.length,
+  };
+}
+
+function _snrToRadius(snr, modemPreset = "", options = {}) {
+  return _estimateLinkBudgetRangeMeters({
+    snr,
+    modemPreset,
+    hopsAway: options.hopsAway,
+    online: options.online ?? true,
+    networkPreset: options.networkPreset || "",
+  }).radiusMeters;
+}
+
+function _renderMapRadius(withPos, allByMeshNum = {}, reverseLookup = {}) {
   if (_mapRadiusStyle === "rings") {
-    _renderMapRadiusRings(withPos);
+    _renderMapRadiusRings(withPos, allByMeshNum, reverseLookup);
   } else {
-    _renderMapRadiusFill(withPos);
+    _renderMapRadiusFill(withPos, allByMeshNum, reverseLookup);
   }
 }
 
-function _renderMapRadiusFill(withPos) {
+function _renderMapRadiusFill(withPos, allByMeshNum = {}, reverseLookup = {}) {
   for (const node of withPos) {
-    const radius = _snrToRadius(node.snr);
+    const radius = _estimateNodeRadioRange(node, allByMeshNum, reverseLookup).radiusMeters;
     const online = !!node.online;
     const circle = L.circle([node.latitude, node.longitude], {
       radius,
@@ -4870,7 +5080,7 @@ function _renderMapRadiusFill(withPos) {
   }
 }
 
-function _renderMapRadiusRings(withPos) {
+function _renderMapRadiusRings(withPos, allByMeshNum = {}, reverseLookup = {}) {
   // Concentric signal-zone bands: strong (inner) Р Р†РІР‚В РІР‚в„ў medium Р Р†РІР‚В РІР‚в„ў weak (outer)
   const BANDS = [
     { scale: 1.0, color: "#ff7043", fillOpacity: 0.04, weight: 1, dashArray: "6 5", opacity: 0.55 }, // weak/outer
@@ -4884,7 +5094,7 @@ function _renderMapRadiusRings(withPos) {
   ];
 
   for (const node of withPos) {
-    const baseRadius = _snrToRadius(node.snr);
+    const baseRadius = _estimateNodeRadioRange(node, allByMeshNum, reverseLookup).radiusMeters;
     const online = !!node.online;
     const bands = online ? BANDS : OFFLINE_BANDS;
 
@@ -4925,6 +5135,7 @@ function _deterministicAngle(str) {
 }
 
 function _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup) {
+  const networkPreset = _getNetworkModemPreset(allByMeshNum);
   // ourNode (hopsAway=0) Р Р†РІР‚В РІР‚в„ў place at centroid of all GPS nodes
   if (node.hopsAway === 0) {
     if (withPos.length === 0) return null;
@@ -4961,7 +5172,11 @@ function _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup) {
   if (anchors.length > 0) {
     let totalWeight = 0, sumLat = 0, sumLon = 0;
     for (const a of anchors) {
-      const distM = _snrToRadius(a.snr);
+      const distM = _snrToRadius(a.snr, node?.modemPreset, {
+        hopsAway: node?.hopsAway,
+        online: node?.online,
+        networkPreset,
+      });
       const dLat = (distM / 111320) * Math.sin(angle);
       const dLon = (distM / (111320 * Math.cos(a.lat * Math.PI / 180))) * Math.cos(angle);
       const w = Math.max(1, (a.snr ?? -10) + 15);
@@ -4977,7 +5192,11 @@ function _estimateNodePosition(node, withPos, allByMeshNum, reverseLookup) {
     const ourNode = withPos.find((n) => n.hopsAway === 0);
     if (!ourNode) return null;
     const syntheticSnr = 10 - node.hopsAway * 8;
-    const distM = _snrToRadius(syntheticSnr);
+    const distM = _snrToRadius(syntheticSnr, node?.modemPreset, {
+      hopsAway: node?.hopsAway,
+      online: node?.online,
+      networkPreset,
+    });
     const dLat = (distM / 111320) * Math.sin(angle);
     const dLon = (distM / (111320 * Math.cos(ourNode.latitude * Math.PI / 180))) * Math.cos(angle);
     return { latitude: ourNode.latitude + dLat, longitude: ourNode.longitude + dLon };
@@ -5167,8 +5386,6 @@ async function loadMessages() {
     }
     latestMessages = latestMessages.slice(-300);
     chatState.localHistory = rebuildLocalHistory(latestMessages);
-    logBox.innerHTML = "";
-    latestMessages.forEach(appendLog);
     renderChatPeerList();
     renderChatChannelList();
     if (chatState.mode === CHAT_MODE_DM) {
@@ -5178,6 +5395,20 @@ async function loadMessages() {
     } else if (chatState.mode === CHAT_MODE_AI) {
       renderLocalChatFromState();
     }
+  } catch (error) {
+    appendLog({ sender: "system", recipient: "-", text: error.message, transport: "system" });
+  }
+}
+
+async function loadLogs() {
+  try {
+    latestLogs = await fetchJson("/api/logs");
+    if (!Array.isArray(latestLogs)) {
+      latestLogs = [];
+    }
+    latestLogs = latestLogs.slice(-300);
+    logBox.innerHTML = "";
+    latestLogs.forEach(appendLog);
   } catch (error) {
     appendLog({ sender: "system", recipient: "-", text: error.message, transport: "system" });
   }
@@ -5277,8 +5508,19 @@ chatForm.addEventListener("submit", async (event) => {
   }
 });
 
-clearLogButton.addEventListener("click", () => {
-  logBox.innerHTML = "";
+clearLogButton.addEventListener("click", async () => {
+  clearLogButton.disabled = true;
+  try {
+    await fetchJson("/api/logs/clear", {
+      method: "POST",
+    });
+    latestLogs = [];
+    logBox.innerHTML = "";
+  } catch (error) {
+    appendLog({ sender: "system", recipient: "-", text: error.message, transport: "system" });
+  } finally {
+    clearLogButton.disabled = false;
+  }
 });
 
 copyAllLogButton.addEventListener("click", () => {
@@ -6497,6 +6739,8 @@ function connectEvents() {
     const message = JSON.parse(event.data);
     latestMessages.push(message);
     latestMessages = latestMessages.slice(-300);
+    latestLogs.push(message);
+    latestLogs = latestLogs.slice(-300);
     appendLog(message);
     // Track unread incoming DM messages
     if (isIncomingDmMessage(message)) {
@@ -6604,6 +6848,7 @@ setWalletView("home");
 renderHelpView();
 loadStatus();
 loadMessages();
+loadLogs();
 loadNodes();
 connectEvents();
 

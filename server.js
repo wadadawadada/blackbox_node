@@ -23,6 +23,7 @@ const STATIC_DIR = path.join(__dirname, "static");
 const DATA_DIR = path.join(__dirname, "data");
 const TAK_CAPTURE_DIR = path.join(DATA_DIR, "tak_capture");
 const DB_FILE = path.join(DATA_DIR, "messages.json");
+const LOGS_FILE = path.join(DATA_DIR, "logs.json");
 const NODES_FILE = path.join(DATA_DIR, "nodes.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const WALLET_FILE = path.join(DATA_DIR, "wallet.json");
@@ -195,6 +196,7 @@ const latestTakFeatures = new Map(); // uid -> feature
 let nodesRefreshInterval = null;
 let nodesStatusPushInterval = null;
 let messages = [];
+let logs = [];
 let knownNodes = {};
 let appSettings = {};
 let walletData = null;
@@ -235,6 +237,16 @@ if (fs.existsSync(DB_FILE)) {
   } catch {
     messages = [];
   }
+}
+
+if (fs.existsSync(LOGS_FILE)) {
+  try {
+    logs = JSON.parse(fs.readFileSync(LOGS_FILE, "utf8"));
+  } catch {
+    logs = [];
+  }
+} else {
+  logs = Array.isArray(messages) ? messages.slice(-300) : [];
 }
 
 if (fs.existsSync(NODES_FILE)) {
@@ -371,6 +383,10 @@ meshtasticStatus = getMeshtasticStatusPayload();
 
 function persistMessages() {
   fs.writeFileSync(DB_FILE, JSON.stringify(messages.slice(-300), null, 2));
+}
+
+function persistLogs() {
+  fs.writeFileSync(LOGS_FILE, JSON.stringify(logs.slice(-300), null, 2));
 }
 
 function persistNodes() {
@@ -2200,7 +2216,10 @@ function addMessage(entry) {
   };
   messages.push(item);
   messages = messages.slice(-300);
+  logs.push(item);
+  logs = logs.slice(-300);
   persistMessages();
+  persistLogs();
   broadcast("message", item);
   return item;
 }
@@ -2210,6 +2229,7 @@ function updateMessageAck(messageId, ack) {
   if (!msg) return;
   msg.ack = ack;
   persistMessages();
+  persistLogs();
   broadcast("ack_update", { id: messageId, ack });
 }
 
@@ -2275,6 +2295,15 @@ function clearMessages(scope, peerId = "", channelIndex = null) {
   }
 
   return { ok: true, removed: before - messages.length, remaining: messages.length };
+}
+
+function clearLogs() {
+  const before = logs.length;
+  logs = [];
+  if (before > 0) {
+    persistLogs();
+  }
+  return { ok: true, removed: before, remaining: 0 };
 }
 
 function normalizeWhitespace(text) {
@@ -4922,6 +4951,19 @@ const server = http.createServer(async (req, res) => {
       try {
         const body = await readJson(req);
         const result = clearMessages(body.scope, body.peerId, body.channelIndex);
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, 400, { error: error.message });
+      }
+    }
+
+    if (req.method === "GET" && req.url === "/api/logs") {
+      return sendJson(res, 200, logs);
+    }
+
+    if (req.method === "POST" && req.url === "/api/logs/clear") {
+      try {
+        const result = clearLogs();
         return sendJson(res, 200, result);
       } catch (error) {
         return sendJson(res, 400, { error: error.message });
