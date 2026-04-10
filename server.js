@@ -186,7 +186,8 @@ const MESH_PACKET_BATCH_DELAY_MS_CASHU = 6000;
 const MESH_ACK_RETRY_COUNT = 1;
 const MESH_ACK_RETRY_DELAY_MS = 1800;
 const WEATHER_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const NODE_ONLINE_MAX_AGE_MS = 5 * 60 * 1000;
+const DEFAULT_NODE_ONLINE_WINDOW_MINUTES = 30;
+const ALLOWED_NODE_ONLINE_WINDOW_MINUTES = new Set([5, 15, 30, 45, 60]);
 const SUMMARY_ACTIVITY_WINDOW_MS = 60 * 60 * 1000;
 const SUMMARY_STALE_NODE_AGE_MS = 30 * 60 * 1000;
 const NODES_STATUS_PUSH_INTERVAL_MS = 60 * 1000;
@@ -347,9 +348,26 @@ function getConfiguredTakHopLimit() {
   return Number.isInteger(value) && value >= 0 && value <= 7 ? value : 3;
 }
 
+function getConfiguredNodeOnlineWindowMinutes() {
+  const value = Number.parseInt(String(appSettings.nodeOnlineWindowMinutes ?? DEFAULT_NODE_ONLINE_WINDOW_MINUTES), 10);
+  return ALLOWED_NODE_ONLINE_WINDOW_MINUTES.has(value) ? value : DEFAULT_NODE_ONLINE_WINDOW_MINUTES;
+}
+
+function getConfiguredNodeOnlineWindowMs() {
+  return getConfiguredNodeOnlineWindowMinutes() * 60 * 1000;
+}
+
 function setConfiguredTakHopLimit(hopLimit) {
   const value = Number.parseInt(String(hopLimit ?? "3"), 10);
   appSettings.takHopLimit = Number.isInteger(value) && value >= 0 && value <= 7 ? value : 3;
+  persistSettings();
+}
+
+function setConfiguredNodeOnlineWindowMinutes(value) {
+  const parsed = Number.parseInt(String(value ?? DEFAULT_NODE_ONLINE_WINDOW_MINUTES), 10);
+  appSettings.nodeOnlineWindowMinutes = ALLOWED_NODE_ONLINE_WINDOW_MINUTES.has(parsed)
+    ? parsed
+    : DEFAULT_NODE_ONLINE_WINDOW_MINUTES;
   persistSettings();
 }
 
@@ -369,6 +387,7 @@ function getMeshtasticStatusPayload(overrides = {}) {
     selectedPort: getConfiguredMeshtasticPort() || null,
     takChannel: getConfiguredTakChannel(),
     takHopLimit: getConfiguredTakHopLimit(),
+    nodeOnlineWindowMinutes: getConfiguredNodeOnlineWindowMinutes(),
     ...overrides,
   };
 }
@@ -2939,7 +2958,7 @@ function isNodeOnline(node) {
     return node.snr !== null || node.hopsAway !== null;
   }
   const value = typeof stamp === "number" ? stamp * 1000 : new Date(stamp).getTime();
-  return Date.now() - value <= NODE_ONLINE_MAX_AGE_MS;
+  return Date.now() - value <= getConfiguredNodeOnlineWindowMs();
 }
 
 function getNodesPayload() {
@@ -5460,6 +5479,7 @@ const server = http.createServer(async (req, res) => {
         modemPreset: localNode?.modemPreset || "LONG_FAST",
         takChannel: getConfiguredTakChannel(),
         takHopLimit: getConfiguredTakHopLimit(),
+        nodeOnlineWindowMinutes: getConfiguredNodeOnlineWindowMinutes(),
       });
     }
 
@@ -5471,11 +5491,19 @@ const server = http.createServer(async (req, res) => {
       if (Object.prototype.hasOwnProperty.call(body, "takHopLimit")) {
         setConfiguredTakHopLimit(body.takHopLimit);
       }
+      if (Object.prototype.hasOwnProperty.call(body, "nodeOnlineWindowMinutes")) {
+        setConfiguredNodeOnlineWindowMinutes(body.nodeOnlineWindowMinutes);
+      }
       try {
         const bridgePayload = { ...body };
         delete bridgePayload.takChannel;
         delete bridgePayload.takHopLimit;
-        sendBridge({ type: "set_device_meta", payload: bridgePayload });
+        delete bridgePayload.nodeOnlineWindowMinutes;
+        if (Object.keys(bridgePayload).length > 0) {
+          sendBridge({ type: "set_device_meta", payload: bridgePayload });
+        }
+        broadcast("nodes", getNodesPayload());
+        broadcast("status", { meshtastic: getMeshtasticStatusPayload() });
         return sendJson(res, 200, { ok: true });
       } catch (e) {
         return sendJson(res, 503, { error: e.message });

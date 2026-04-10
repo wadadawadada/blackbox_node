@@ -68,12 +68,24 @@
         <section class="panel nodes-panel">
           <div class="panel-head">
             <h2>Nodes <span id="nodesOnlineCount" class="nodes-online-count"></span></h2>
-            <button id="openNodesMapButton" type="button" class="panel-icon-button" aria-label="Open nodes map">
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-                <path d="M9 4L3 7v13l6-3 6 3 6-3V4l-6 3-6-3Z" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
-                <path d="M9 4v13M15 7v13" stroke="#ffffff" stroke-width="1.5"/>
-              </svg>
-            </button>
+            <div class="panel-head-actions">
+              <label class="nodes-panel-window-control" for="nodesPanelOnlineWindow">
+                <span class="nodes-panel-window-label">Online window</span>
+                <select id="nodesPanelOnlineWindow" class="nodes-panel-window-select">
+                  <option value="5">5 min</option>
+                  <option value="15">15 min</option>
+                  <option value="30" selected>30 min</option>
+                  <option value="45">45 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </label>
+              <button id="openNodesMapButton" type="button" class="panel-icon-button" aria-label="Open nodes map">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+                  <path d="M9 4L3 7v13l6-3 6 3 6-3V4l-6 3-6-3Z" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
+                  <path d="M9 4v13M15 7v13" stroke="#ffffff" stroke-width="1.5"/>
+                </svg>
+              </button>
+            </div>
           </div>
           <div id="nodesList" class="nodes-list">
             <div class="node-empty">No nodes yet</div>
@@ -212,6 +224,16 @@
       <div class="panel-head modal-head">
         <h2 id="nodesMapTitle">Node Map</h2>
         <div class="modal-head-actions">
+          <label id="mapNodeOnlineWindowControl" class="nodes-map-window-control" for="mapNodeOnlineWindow">
+            <span class="nodes-map-window-label">Online window</span>
+            <select id="mapNodeOnlineWindow" class="nodes-map-window-select">
+              <option value="5">5 min</option>
+              <option value="15">15 min</option>
+              <option value="30" selected>30 min</option>
+              <option value="45">45 min</option>
+              <option value="60">60 min</option>
+            </select>
+          </label>
           <button id="nodesMapExpand" type="button" class="modal-close" aria-label="Toggle fullscreen">
             <svg id="nodesMapExpandIcon" width="12" height="12" viewBox="0 0 12 12" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
               <path d="M1 1h4v1.5H2.5V4H1V1zm6 0h4v3h-1.5V2.5H7V1zM1 8h1.5v2.5H5V12H1V8zm8.5 2.5H7V12h4V8H9.5v2.5z"/>

@@ -40,6 +40,9 @@ const chatChannelCreateButton = document.getElementById("chatChannelCreateButton
 const nodesMapModal = document.getElementById("nodesMapModal");
 const nodesMapClose = document.getElementById("nodesMapClose");
 const nodesMapContainer = document.getElementById("nodesMapContainer");
+const nodesPanelOnlineWindow = document.getElementById("nodesPanelOnlineWindow");
+const mapNodeOnlineWindowControl = document.getElementById("mapNodeOnlineWindowControl");
+const mapNodeOnlineWindow = document.getElementById("mapNodeOnlineWindow");
 const openNodesMapButton = document.getElementById("openNodesMapButton");
 const nodeModal = document.getElementById("nodeModal");
 const nodeModalClose = document.getElementById("nodeModalClose");
@@ -1893,6 +1896,31 @@ function openDeviceMetaModal() {
   });
 }
 
+async function loadMapNodeOnlineWindow() {
+  if (!mapNodeOnlineWindow && !nodesPanelOnlineWindow) return;
+  try {
+    const data = await fetchJson("/api/device-meta");
+    const value = data.nodeOnlineWindowMinutes != null ? String(data.nodeOnlineWindowMinutes) : "30";
+    if (mapNodeOnlineWindow) {
+      mapNodeOnlineWindow.value = value;
+      mapNodeOnlineWindow.dataset.currentValue = value;
+    }
+    if (nodesPanelOnlineWindow) {
+      nodesPanelOnlineWindow.value = value;
+      nodesPanelOnlineWindow.dataset.currentValue = value;
+    }
+  } catch {
+    if (mapNodeOnlineWindow) {
+      mapNodeOnlineWindow.value = "30";
+      mapNodeOnlineWindow.dataset.currentValue = "30";
+    }
+    if (nodesPanelOnlineWindow) {
+      nodesPanelOnlineWindow.value = "30";
+      nodesPanelOnlineWindow.dataset.currentValue = "30";
+    }
+  }
+}
+
 function closeDeviceMetaModal() {
   deviceMetaModal.classList.add("hidden");
   deviceMetaModal.setAttribute("aria-hidden", "true");
@@ -3333,6 +3361,7 @@ function _clearHoverLines() {
 function openNodesMap() {
   nodesMapModal.classList.remove("hidden");
   nodesMapModal.setAttribute("aria-hidden", "false");
+  loadMapNodeOnlineWindow();
 
   if (!_mapInstance) {
     const initialCenter = _mapSavedView?.center || [20, 0];
@@ -4143,6 +4172,12 @@ function _takRefreshPanel() {
   const autoEl = document.getElementById("mapNetworkLayers");
   if (autoEl) {
     autoEl.innerHTML = "";
+    if (mapNodeOnlineWindowControl) {
+      const windowRow = document.createElement("div");
+      windowRow.className = "tak-layer-row nodes-map-network-layer-row nodes-map-network-window-row";
+      windowRow.appendChild(mapNodeOnlineWindowControl);
+      autoEl.appendChild(windowRow);
+    }
     const autoLayers = [
       { key: "online",  label: "Online Nodes",  color: "#4caf50" },
       { key: "offline", label: "Offline Nodes", color: "#8b4a4a" },
@@ -6876,6 +6911,64 @@ nodesMapModal.addEventListener("click", (event) => {
     closeNodesMap();
   }
 });
+if (mapNodeOnlineWindow) {
+  mapNodeOnlineWindow.addEventListener("change", async () => {
+    const previousValue = mapNodeOnlineWindow.dataset.currentValue || "30";
+    const nextValue = mapNodeOnlineWindow.value;
+    mapNodeOnlineWindow.disabled = true;
+    if (nodesPanelOnlineWindow) nodesPanelOnlineWindow.disabled = true;
+    try {
+      await fetchJson("/api/device-meta", {
+        method: "POST",
+        body: JSON.stringify({ nodeOnlineWindowMinutes: parseInt(nextValue, 10) }),
+      });
+      mapNodeOnlineWindow.dataset.currentValue = nextValue;
+      if (nodesPanelOnlineWindow) {
+        nodesPanelOnlineWindow.value = nextValue;
+        nodesPanelOnlineWindow.dataset.currentValue = nextValue;
+      }
+    } catch (error) {
+      mapNodeOnlineWindow.value = previousValue;
+      mapNodeOnlineWindow.dataset.currentValue = previousValue;
+      if (nodesPanelOnlineWindow) {
+        nodesPanelOnlineWindow.value = previousValue;
+        nodesPanelOnlineWindow.dataset.currentValue = previousValue;
+      }
+    } finally {
+      mapNodeOnlineWindow.disabled = false;
+      if (nodesPanelOnlineWindow) nodesPanelOnlineWindow.disabled = false;
+    }
+  });
+}
+if (nodesPanelOnlineWindow) {
+  nodesPanelOnlineWindow.addEventListener("change", async () => {
+    const previousValue = nodesPanelOnlineWindow.dataset.currentValue || "30";
+    const nextValue = nodesPanelOnlineWindow.value;
+    nodesPanelOnlineWindow.disabled = true;
+    if (mapNodeOnlineWindow) mapNodeOnlineWindow.disabled = true;
+    try {
+      await fetchJson("/api/device-meta", {
+        method: "POST",
+        body: JSON.stringify({ nodeOnlineWindowMinutes: parseInt(nextValue, 10) }),
+      });
+      nodesPanelOnlineWindow.dataset.currentValue = nextValue;
+      if (mapNodeOnlineWindow) {
+        mapNodeOnlineWindow.value = nextValue;
+        mapNodeOnlineWindow.dataset.currentValue = nextValue;
+      }
+    } catch (error) {
+      nodesPanelOnlineWindow.value = previousValue;
+      nodesPanelOnlineWindow.dataset.currentValue = previousValue;
+      if (mapNodeOnlineWindow) {
+        mapNodeOnlineWindow.value = previousValue;
+        mapNodeOnlineWindow.dataset.currentValue = previousValue;
+      }
+    } finally {
+      nodesPanelOnlineWindow.disabled = false;
+      if (mapNodeOnlineWindow) mapNodeOnlineWindow.disabled = false;
+    }
+  });
+}
 
 document.getElementById("nodesMapExpand").addEventListener("click", () => {
   const panel = nodesMapModal.querySelector(".modal-panel--map");
@@ -7043,6 +7136,7 @@ applyWalletConfiguredState();
 setChatMode(CHAT_MODE_AI);
 setWalletView("home");
 renderHelpView();
+loadMapNodeOnlineWindow();
 loadStatus();
 loadMessages();
 loadLogs();
