@@ -8,7 +8,7 @@ const LLAMA_DIR = path.join(ROOT_DIR, "llama");
 const MODELS_DIR = path.join(ROOT_DIR, "models");
 const PYDEPS_DIR = path.join(ROOT_DIR, "pydeps");
 
-const REQUIRED_LLAMA_FILES = ["llama-server.exe", "llama.dll", "ggml.dll", "ggml-base.dll"];
+const LLAMA_SERVER_FILENAME = process.platform === "win32" ? "llama-server.exe" : "llama-server";
 const DEFAULT_MODEL = {
   filename: "Qwen2.5-0.5B-Instruct-Q3_K_M.gguf",
   url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q3_k_m.gguf?download=true",
@@ -81,26 +81,29 @@ function exists(filePath) {
   }
 }
 
+function getRequiredLlamaFiles() {
+  if (process.platform === "win32") {
+    return ["llama-server.exe", "llama.dll", "ggml.dll", "ggml-base.dll"];
+  }
+  return ["llama-server"];
+}
+
 function hasLlamaRuntime() {
   if (!exists(LLAMA_DIR)) {
     return false;
   }
 
-  if (!REQUIRED_LLAMA_FILES.every((filename) => exists(path.join(LLAMA_DIR, filename)))) {
+  const requiredFiles = getRequiredLlamaFiles();
+  if (!requiredFiles.every((filename) => exists(path.join(LLAMA_DIR, filename)))) {
     return false;
   }
 
+  if (process.platform !== "win32") {
+    return true;
+  }
+
   const entries = fs.readdirSync(LLAMA_DIR, { withFileTypes: true });
-  return entries.some((entry) => {
-    if (!entry.isFile()) {
-      return false;
-    }
-    const name = entry.name.toLowerCase();
-    if (!/^ggml-.*\.dll$/.test(name)) {
-      return false;
-    }
-    return name !== "ggml-base.dll" && name !== "ggml-rpc.dll";
-  });
+  return entries.some((entry) => entry.isFile() && /^ggml-.*\.dll$/i.test(entry.name) && entry.name.toLowerCase() !== "ggml-base.dll" && entry.name.toLowerCase() !== "ggml-rpc.dll");
 }
 
 function hasAnyModel() {
@@ -175,68 +178,202 @@ function listFilesRecursive(directoryPath) {
   return results;
 }
 
-function extractZip(zipPath, destinationDir) {
-  const command = [
-    "-NoProfile",
-    "-Command",
-    `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destinationDir.replace(/'/g, "''")}' -Force`,
-  ];
-  const result = spawnSync("powershell", command, {
+function runCommand(command, args, errorMessage) {
+  const result = spawnSync(command, args, {
     cwd: ROOT_DIR,
     stdio: "inherit",
     shell: false,
   });
   if (result.status !== 0) {
-    throw new Error("Failed to extract llama runtime archive");
+    throw new Error(errorMessage);
   }
+}
+
+function extractZip(zipPath, destinationDir) {
+  fs.mkdirSync(destinationDir, { recursive: true });
+  if (process.platform === "win32") {
+    runCommand(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destinationDir.replace(/'/g, "''")}' -Force`,
+      ],
+      "Failed to extract llama runtime archive (zip)",
+    );
+    return;
+  }
+  runCommand("unzip", ["-o", zipPath, "-d", destinationDir], "Failed to extract llama runtime archive (zip). Ensure unzip is installed.");
+}
+
+function extractTarArchive(archivePath, destinationDir) {
+  fs.mkdirSync(destinationDir, { recursive: true });
+  runCommand("tar", ["-xzf", archivePath, "-C", destinationDir], "Failed to extract llama runtime archive (tar.gz). Ensure tar is installed.");
+}
+
+function extractArchive(archivePath, destinationDir) {
+  const lower = path.basename(archivePath).toLowerCase();
+  if (lower.endsWith(".zip")) {
+    extractZip(archivePath, destinationDir);
+    return;
+  }
+  if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) {
+    extractTarArchive(archivePath, destinationDir);
+    return;
+  }
+  throw new Error(`Unsupported runtime archive format: ${path.basename(archivePath)}`);
 }
 
 function copyRuntimeFiles(extractedDir) {
   const files = listFilesRecursive(extractedDir);
   fs.mkdirSync(LLAMA_DIR, { recursive: true });
 
-  for (const filename of REQUIRED_LLAMA_FILES) {
-    const source = files.find((filePath) => path.basename(filePath).toLowerCase() === filename.toLowerCase());
-    if (!source) {
-      throw new Error(`Missing ${filename} in extracted llama runtime`);
+  const serverSource = files.find((filePath) => path.basename(filePath).toLowerCase() === LLAMA_SERVER_FILENAME.toLowerCase());
+  if (!serverSource) {
+    throw new Error(`Missing ${LLAMA_SERVER_FILENAME} in extracted llama runtime`);
+  }
+
+  const serverTarget = path.join(LLAMA_DIR, LLAMA_SERVER_FILENAME);
+  fs.copyFileSync(serverSource, serverTarget);
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(serverTarget, 0o755);
+    } catch {}
+  }
+
+  if (process.platform === "win32") {
+    const requiredFiles = getRequiredLlamaFiles();
+    for (const filename of requiredFiles) {
+      if (filename.toLowerCase() === LLAMA_SERVER_FILENAME.toLowerCase()) {
+        continue;
+      }
+      const source = files.find((filePath) => path.basename(filePath).toLowerCase() === filename.toLowerCase());
+      if (!source) {
+        throw new Error(`Missing ${filename} in extracted llama runtime`);
+      }
+      fs.copyFileSync(source, path.join(LLAMA_DIR, filename));
     }
-    fs.copyFileSync(source, path.join(LLAMA_DIR, filename));
+
+    for (const source of files) {
+      const basename = path.basename(source);
+      if (basename.toLowerCase() === LLAMA_SERVER_FILENAME.toLowerCase()) {
+        continue;
+      }
+      if (!basename.toLowerCase().endsWith(".dll")) {
+        continue;
+      }
+      fs.copyFileSync(source, path.join(LLAMA_DIR, basename));
+    }
+    return;
   }
 
   for (const source of files) {
     const basename = path.basename(source);
-    if (basename.toLowerCase() === "llama-server.exe") {
-      continue;
-    }
-    if (!basename.toLowerCase().endsWith(".dll")) {
+    const lower = basename.toLowerCase();
+    const isRuntimeLib = lower.endsWith(".dylib")
+      || lower.endsWith(".metal")
+      || lower.endsWith(".so")
+      || lower.includes(".so.");
+    if (!isRuntimeLib) {
       continue;
     }
     fs.copyFileSync(source, path.join(LLAMA_DIR, basename));
   }
 }
 
-async function resolveWindowsLlamaAssetUrl() {
-  const flavor = String(process.env.BLACKBOX_LLAMA_FLAVOR || "cpu").trim().toLowerCase();
-  const patterns = {
-    cpu: /win-cpu-x64\.zip$/i,
-    vulkan: /win-vulkan-x64\.zip$/i,
-    cuda12: /win-cuda-12(?:\.[0-9]+)?-x64\.zip$/i,
-    cuda13: /win-cuda-13(?:\.[0-9]+)?-x64\.zip$/i,
-  };
-  const pattern = patterns[flavor] || patterns.cpu;
+function isSupportedRuntimeArchive(filename) {
+  const lower = String(filename || "").toLowerCase();
+  return lower.endsWith(".zip") || lower.endsWith(".tar.gz") || lower.endsWith(".tgz");
+}
 
-  for (const repo of ["ggml-org/llama.cpp", "ggerganov/llama.cpp"]) {
+function getPlatformTokens() {
+  if (process.platform === "win32") {
+    return ["win", "windows"];
+  }
+  if (process.platform === "darwin") {
+    return ["mac", "macos", "darwin", "osx"];
+  }
+  if (process.platform === "linux") {
+    return ["linux", "ubuntu"];
+  }
+  return [process.platform];
+}
+
+function getArchTokens() {
+  if (process.arch === "x64") {
+    return ["x64", "x86_64", "amd64"];
+  }
+  if (process.arch === "arm64") {
+    return ["arm64", "aarch64"];
+  }
+  return [process.arch];
+}
+
+function scoreLlamaAssetName(assetName, flavor) {
+  const name = String(assetName || "").toLowerCase();
+  if (!isSupportedRuntimeArchive(name)) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  if (name.includes("source")) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const platformTokens = getPlatformTokens();
+  if (!platformTokens.some((token) => name.includes(token))) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  let score = 120;
+  const archTokens = getArchTokens();
+  if (archTokens.some((token) => name.includes(token))) {
+    score += 80;
+  }
+
+  const normalizedFlavor = String(flavor || "cpu").trim().toLowerCase();
+  if (normalizedFlavor === "cpu") {
+    if (name.includes("cpu")) score += 20;
+    if (name.includes("cuda")) score -= 25;
+    if (name.includes("vulkan")) score -= 15;
+  } else if (normalizedFlavor === "vulkan") {
+    if (name.includes("vulkan")) score += 40;
+  } else if (normalizedFlavor === "metal") {
+    if (name.includes("metal")) score += 40;
+  } else if (normalizedFlavor.startsWith("cuda")) {
+    if (name.includes("cuda")) score += 45;
+    if (normalizedFlavor.includes("12") && (name.includes("cu12") || name.includes("cuda-12"))) score += 15;
+    if (normalizedFlavor.includes("13") && (name.includes("cu13") || name.includes("cuda-13"))) score += 15;
+  }
+
+  if (name.includes("server")) score += 5;
+  return score;
+}
+
+async function resolveLlamaAsset() {
+  const flavor = String(process.env.BLACKBOX_LLAMA_FLAVOR || "cpu").trim().toLowerCase();
+  const repos = ["ggml-org/llama.cpp", "ggerganov/llama.cpp"];
+
+  for (const repo of repos) {
     try {
       const release = await fetchJson(`https://api.github.com/repos/${repo}/releases/latest`);
       const assets = Array.isArray(release.assets) ? release.assets : [];
-      const asset = assets.find((item) => pattern.test(String(item.name || "")));
-      if (asset && asset.browser_download_url) {
-        return asset.browser_download_url;
+      let best = null;
+      let bestScore = Number.NEGATIVE_INFINITY;
+      for (const asset of assets) {
+        const name = String(asset?.name || "");
+        const score = scoreLlamaAssetName(name, flavor);
+        if (!Number.isFinite(score)) continue;
+        if (score > bestScore) {
+          best = asset;
+          bestScore = score;
+        }
+      }
+      if (best?.browser_download_url && best?.name && bestScore >= 120) {
+        return { url: String(best.browser_download_url), name: String(best.name) };
       }
     } catch {}
   }
 
-  throw new Error(`Could not find a llama.cpp release asset for flavor "${flavor}"`);
+  throw new Error(`Could not find a llama.cpp release asset for platform=${process.platform} arch=${process.arch} flavor=${flavor}`);
 }
 
 async function ensureLlamaRuntime() {
@@ -245,19 +382,15 @@ async function ensureLlamaRuntime() {
     return;
   }
 
-  if (process.platform !== "win32") {
-    throw new Error("Automatic llama runtime install is currently implemented for Windows only");
-  }
-
-  log("downloading llama.cpp runtime");
-  const assetUrl = await resolveWindowsLlamaAssetUrl();
+  log(`downloading llama.cpp runtime for ${process.platform}/${process.arch}`);
+  const asset = await resolveLlamaAsset();
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "blackbox-llama-"));
-  const archivePath = path.join(tempRoot, "llama-runtime.zip");
+  const archivePath = path.join(tempRoot, path.basename(asset.name || "llama-runtime.zip"));
   const extractDir = path.join(tempRoot, "extract");
 
   try {
-    await downloadFile(assetUrl, archivePath, "llama.cpp runtime");
-    extractZip(archivePath, extractDir);
+    await downloadFile(asset.url, archivePath, "llama.cpp runtime");
+    extractArchive(archivePath, extractDir);
     copyRuntimeFiles(extractDir);
     log("llama runtime installed");
   } finally {

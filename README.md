@@ -119,7 +119,7 @@ npm start
 During `npm install`, the project bootstraps the local AI runtime automatically:
 
 - installs JavaScript dependencies
-- downloads a Windows `llama.cpp` runtime into `./llama/` if missing
+- downloads a platform-matched `llama.cpp` runtime into `./llama/` if missing (Windows/Linux/macOS)
 - downloads a starter GGUF model into `./models/` if missing
 - attempts to install the Meshtastic Python package into `./pydeps/` if Python is available
 
@@ -153,26 +153,22 @@ This creates `node_modules/` and runs the bootstrap installer for the local AI r
 
 Skip this step unless automatic bootstrap failed or you want to replace the runtime manually.
 
-Otherwise, the `llama/` folder must contain `llama-server.exe` and its companion DLLs. Download a prebuilt Windows release from the [llama.cpp releases page](https://github.com/ggerganov/llama.cpp/releases) and choose the `win-cuda`, `win-vulkan`, or `win-cpu` zip for your hardware.
+Otherwise, the `llama/` folder must contain `llama-server` (`llama-server.exe` on Windows) and the companion runtime libraries from a matching prebuilt package in the [llama.cpp releases page](https://github.com/ggerganov/llama.cpp/releases).
 
-Extract `llama-server.exe`, `llama.dll`, and the bundled `ggml*.dll` files into `./llama/`:
+Extract `llama-server` (or `llama-server.exe`) and the bundled `ggml`/`llama` runtime libraries into `./llama/`:
 
 ```text
 llama/
-  llama-server.exe
-  llama.dll
-  ggml.dll
-  ggml-base.dll
-  ggml-cpu.dll
-  ggml-cpu-*.dll
-  ggml-rpc.dll
+  llama-server(.exe)
+  llama runtime libraries (.dll / .so / .dylib depending on OS)
 ```
 
-Pick the build that matches your machine:
+Pick the build that matches your machine and OS/CPU:
 
-- No GPU -> `llama-b...-bin-win-cpu-x64.zip`
-- NVIDIA GPU -> `llama-b...-bin-win-cuda-cu12.x-x64.zip`
-- AMD / Intel GPU -> `llama-b...-bin-win-vulkan-x64.zip`
+- No GPU -> `...-cpu-...`
+- NVIDIA GPU -> `...-cuda-...`
+- AMD / Intel GPU -> `...-vulkan-...`
+- Apple Silicon (optional acceleration) -> `...-metal-...`
 
 ### 4. Download a model (manual fallback only)
 
@@ -224,7 +220,7 @@ npm start
 On launch:
 
 - the web UI opens at `http://127.0.0.1:7860`
-- `llama-server.exe` starts from `./llama/` and loads the selected model
+- `llama-server` (or `llama-server.exe` on Windows) starts and loads the selected model
 - the Python Meshtastic bridge (`bridge.py`) connects to a detected serial device
 - the installer prepares `./llama/`, `./models/`, and tries to prepare `./pydeps/`
 
@@ -237,7 +233,7 @@ On launch:
 | Node.js 18+ | Runtime for the web server |
 | Python 3.11+ | Required only for Meshtastic radio and TAK features |
 | Internet during `npm install` | Needed to download `llama.cpp`, a starter model, and optional Python deps |
-| `./llama/llama-server.exe` | Auto-downloaded on install if missing |
+| `./llama/llama-server` (or `llama-server.exe` on Windows) | Auto-downloaded on install if missing |
 | At least one `.gguf` in `./models/` | Auto-downloaded on install if missing |
 | Meshtastic device on USB serial | Optional, but required for radio, telemetry, and TAK transport |
 
