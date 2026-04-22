@@ -4168,8 +4168,32 @@ textarea,
   margin-top: 4px;
 }
 
+.device-connect-panel {
+  width: min(360px, calc(100vw - 32px));
+}
+
+.device-connect-form {
+  display: grid;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.device-connect-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.device-connect-actions button {
+  width: 100%;
+}
+
 @media (max-width: 560px) {
   .device-meta-row {
+    grid-template-columns: 1fr;
+  }
+
+  .device-connect-actions {
     grid-template-columns: 1fr;
   }
 }

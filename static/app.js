@@ -234,6 +234,12 @@ const deviceMetaTakHopLimit = document.getElementById("deviceMetaTakHopLimit");
 const deviceMetaModemPreset = document.getElementById("deviceMetaModemPreset");
 const deviceMetaStatus = document.getElementById("deviceMetaStatus");
 const deviceMetaSave = document.getElementById("deviceMetaSave");
+const deviceConnectModal = document.getElementById("deviceConnectModal");
+const deviceConnectClose = document.getElementById("deviceConnectClose");
+const deviceConnectPortSelect = document.getElementById("deviceConnectPortSelect");
+const deviceConnectRefresh = document.getElementById("deviceConnectRefresh");
+const deviceConnectApply = document.getElementById("deviceConnectApply");
+const deviceConnectStatus = document.getElementById("deviceConnectStatus");
 const chatChannelModal = document.getElementById("chatChannelModal");
 const chatChannelModalClose = document.getElementById("chatChannelModalClose");
 const chatChannelModalForm = document.getElementById("chatChannelModalForm");
@@ -1924,6 +1930,113 @@ async function loadMapNodeOnlineWindow() {
 function closeDeviceMetaModal() {
   deviceMetaModal.classList.add("hidden");
   deviceMetaModal.setAttribute("aria-hidden", "true");
+}
+
+function closeDeviceConnectModal() {
+  if (!deviceConnectModal) return;
+  deviceConnectModal.classList.add("hidden");
+  deviceConnectModal.setAttribute("aria-hidden", "true");
+}
+
+function describeSerialPortOption(port) {
+  const device = String(port?.device || "").trim();
+  const description = String(port?.description || port?.product || port?.manufacturer || "").trim();
+  const sourceTag = port?.isDetected ? "detected" : (port?.isFallback ? "fallback" : "serial");
+  const labelParts = [device];
+  if (description) labelParts.push(description);
+  labelParts.push(`[${sourceTag}]`);
+  return labelParts.join(" - ");
+}
+
+async function refreshDeviceConnectPorts(preferredPort = "") {
+  if (!deviceConnectPortSelect || !deviceConnectStatus || !deviceConnectRefresh || !deviceConnectApply) return;
+  deviceConnectStatus.textContent = "Scanning serial ports...";
+  deviceConnectRefresh.disabled = true;
+  deviceConnectApply.disabled = true;
+  try {
+    const payload = await fetchJson("/api/meshtastic/ports");
+    const ports = Array.isArray(payload.ports) ? payload.ports : [];
+    const selectedPort = String(preferredPort || payload.selectedPort || "").trim();
+    deviceConnectPortSelect.innerHTML = "";
+
+    const autoOption = document.createElement("option");
+    autoOption.value = "";
+    autoOption.textContent = "Auto-detect (recommended)";
+    deviceConnectPortSelect.appendChild(autoOption);
+
+    let selectedMatched = false;
+    ports.forEach((port) => {
+      const device = String(port?.device || "").trim();
+      if (!device) return;
+      const option = document.createElement("option");
+      option.value = device;
+      option.textContent = describeSerialPortOption(port);
+      const shouldSelect = (selectedPort && device === selectedPort) || (!selectedPort && Boolean(port?.isSelected));
+      if (shouldSelect) {
+        option.selected = true;
+        selectedMatched = true;
+      }
+      deviceConnectPortSelect.appendChild(option);
+    });
+
+    if (selectedPort && !selectedMatched) {
+      const savedOption = document.createElement("option");
+      savedOption.value = selectedPort;
+      savedOption.textContent = `${selectedPort} - saved`;
+      savedOption.selected = true;
+      deviceConnectPortSelect.appendChild(savedOption);
+      selectedMatched = true;
+    }
+
+    if (!selectedMatched) {
+      deviceConnectPortSelect.value = "";
+    }
+
+    if (!payload.ok) {
+      deviceConnectStatus.textContent = payload.error || "Port scan failed.";
+    } else if (!ports.length) {
+      deviceConnectStatus.textContent = "No serial ports found. Connect your device and refresh.";
+    } else {
+      deviceConnectStatus.textContent = selectedPort
+        ? `Saved port: ${selectedPort}. Select a port and click Connect.`
+        : "Select a port and click Connect.";
+    }
+  } catch (error) {
+    deviceConnectStatus.textContent = `Port scan failed: ${error.message}`;
+  } finally {
+    deviceConnectRefresh.disabled = false;
+    deviceConnectApply.disabled = false;
+  }
+}
+
+async function connectMeshtasticPortFromModal() {
+  if (!deviceConnectPortSelect || !deviceConnectStatus || !deviceConnectRefresh || !deviceConnectApply) return;
+  const port = String(deviceConnectPortSelect.value || "").trim();
+  deviceConnectStatus.textContent = port
+    ? `Connecting to ${port}...`
+    : "Connecting with auto-detect...";
+  deviceConnectRefresh.disabled = true;
+  deviceConnectApply.disabled = true;
+  try {
+    await fetchJson("/api/meshtastic/connect", {
+      method: "POST",
+      body: JSON.stringify({ port }),
+    });
+    await loadStatus();
+    closeDeviceConnectModal();
+  } catch (error) {
+    deviceConnectStatus.textContent = `Connect failed: ${error.message}`;
+  } finally {
+    deviceConnectRefresh.disabled = false;
+    deviceConnectApply.disabled = false;
+  }
+}
+
+async function openDeviceConnectModal() {
+  if (!deviceConnectModal) return;
+  deviceConnectModal.classList.remove("hidden");
+  deviceConnectModal.setAttribute("aria-hidden", "false");
+  await refreshDeviceConnectPorts();
 }
 
 function openWalletTestModeWarningModal() {
@@ -5509,6 +5622,7 @@ function renderDeviceStatus(status) {
   const connected = Boolean(mesh.connected);
   const isConnecting = !connected && ["starting", "detecting"].includes(String(mesh.mode || ""));
   const port = mesh.port ? ` on ${mesh.port}` : "";
+  const selectedPort = mesh.selectedPort ? String(mesh.selectedPort) : "";
   const takChannel = Number.isInteger(mesh.takChannel) ? mesh.takChannel : 0;
   const takHopLimit = Number.isInteger(mesh.takHopLimit) ? mesh.takHopLimit : 3;
   deviceStatus.className = `device-status ${connected ? "online" : (isConnecting ? "loading" : "offline")}`;
@@ -5517,9 +5631,16 @@ function renderDeviceStatus(status) {
     : (isConnecting ? `Connecting${port}` : "Device not connected");
   deviceStatusText.textContent = connected
     ? `Auto-connected at startup | TAK ch${takChannel} | hop ${takHopLimit}`
-    : (isConnecting ? "Link check in progress..." : (mesh.error || "Waiting for auto-connect"));
+    : (
+      isConnecting
+        ? "Link check in progress..."
+        : (mesh.error || (selectedPort ? `Saved port ${selectedPort} is unavailable.` : "Waiting for auto-connect."))
+    );
 
-  deviceStatus.style.cursor = connected ? "pointer" : "";
+  deviceStatus.style.cursor = connected || !isConnecting ? "pointer" : "";
+  deviceStatus.title = connected
+    ? "Click to edit device identity"
+    : (isConnecting ? "" : "Click to select serial port");
   latestMeshtasticConnected = connected;
   if (typeof status.meshAiReply === "boolean") {
     applyMeshAiReply(status.meshAiReply);
@@ -6799,7 +6920,11 @@ if (walletTestModeWarningConfirm) {
   });
 }
 deviceStatus.addEventListener("click", () => {
-  if (latestMeshtasticConnected) openDeviceMetaModal();
+  if (latestMeshtasticConnected) {
+    openDeviceMetaModal();
+    return;
+  }
+  openDeviceConnectModal();
 });
 meshAiReplyToggle.addEventListener("click", () => {
   const next = meshAiReplyToggle.getAttribute("aria-pressed") !== "true";
@@ -6813,6 +6938,26 @@ deviceMetaModal.addEventListener("click", (event) => {
     closeDeviceMetaModal();
   }
 });
+if (deviceConnectClose) {
+  deviceConnectClose.addEventListener("click", closeDeviceConnectModal);
+}
+if (deviceConnectModal) {
+  deviceConnectModal.addEventListener("click", (event) => {
+    if (event.target.hasAttribute("data-close-device-connect")) {
+      closeDeviceConnectModal();
+    }
+  });
+}
+if (deviceConnectRefresh) {
+  deviceConnectRefresh.addEventListener("click", () => {
+    refreshDeviceConnectPorts(String(deviceConnectPortSelect?.value || "").trim()).catch(() => {});
+  });
+}
+if (deviceConnectApply) {
+  deviceConnectApply.addEventListener("click", () => {
+    connectMeshtasticPortFromModal().catch(() => {});
+  });
+}
 if (walletTestModeWarningModal) {
   walletTestModeWarningModal.addEventListener("click", (event) => {
     if (event.target.hasAttribute("data-close-wallet-testmode-warning")) {
@@ -7016,6 +7161,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && !nodeModal.classList.contains("hidden")) {
     closeNodeModal();
+    return;
+  }
+  if (event.key === "Escape" && deviceConnectModal && !deviceConnectModal.classList.contains("hidden")) {
+    closeDeviceConnectModal();
     return;
   }
   if (event.key === "Escape" && !deviceMetaModal.classList.contains("hidden")) {

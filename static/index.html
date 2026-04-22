@@ -1182,6 +1182,31 @@
       </div>
     </section>
   </div>
+  <div id="deviceConnectModal" class="modal-shell hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-device-connect></div>
+    <section class="modal-panel panel device-connect-panel" role="dialog" aria-modal="true" aria-labelledby="deviceConnectTitle">
+      <div class="panel-head modal-head">
+        <div>
+          <h2 id="deviceConnectTitle">Device Connection</h2>
+          <div class="chat-subtitle">Choose a serial port and reconnect Meshtastic</div>
+        </div>
+        <button id="deviceConnectClose" type="button" class="modal-close" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
+      </div>
+      <div class="device-connect-form">
+        <label class="device-meta-field" for="deviceConnectPortSelect">
+          <span class="device-meta-label">Serial Port</span>
+          <select id="deviceConnectPortSelect">
+            <option value="">Auto-detect (recommended)</option>
+          </select>
+        </label>
+        <div class="device-connect-actions">
+          <button id="deviceConnectRefresh" type="button">Refresh ports</button>
+          <button id="deviceConnectApply" type="button">Connect</button>
+        </div>
+        <div id="deviceConnectStatus" class="device-status-text" role="status" aria-live="polite"></div>
+      </div>
+    </section>
+  </div>
   <div id="walletTestModeWarningModal" class="modal-shell hidden" aria-hidden="true">
     <div class="modal-backdrop" data-close-wallet-testmode-warning></div>
     <section class="modal-panel panel wallet-warning-modal-panel" role="dialog" aria-modal="true" aria-labelledby="walletTestModeWarningTitle">

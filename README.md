@@ -319,6 +319,10 @@ On launch:
 
 If this project is useful to you, consider supporting development:
 
+<iframe src="https://github.com/sponsors/wadadawadada/button" title="Sponsor wadadawadada" height="42" width="170" style="border: 0; border-radius: 8px;"></iframe>
+
+If the button is not visible in your viewer, use: [github.com/sponsors/wadadawadada](https://github.com/sponsors/wadadawadada)
+
 | Chain | Address |
 |---|---|
 | BTC | `bc1p3p87l267hte2dgg60jjt7w9xk8vfcjenr534yya0hedhet4l4fvq2x2svp` |
