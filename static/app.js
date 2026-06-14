@@ -48,6 +48,8 @@ const nodesMapContainer = document.getElementById("nodesMapContainer");
 const nodesPanelOnlineWindow = document.getElementById("nodesPanelOnlineWindow");
 const mapNodeOnlineWindowControl = document.getElementById("mapNodeOnlineWindowControl");
 const mapNodeOnlineWindow = document.getElementById("mapNodeOnlineWindow");
+const nodesMapCacheButton = document.getElementById("nodesMapCacheButton");
+const nodesMapCacheStatus = document.getElementById("nodesMapCacheStatus");
 const openNodesMapButton = document.getElementById("openNodesMapButton");
 const nodeModal = document.getElementById("nodeModal");
 const nodeModalClose = document.getElementById("nodeModalClose");
@@ -3290,6 +3292,7 @@ function _setupLocateButton(nodeId, peerId, hasPos) {
 
 // Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ Nodes Map Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ
 let _mapInstance = null;
+let _mapTileLayer = null;
 let _mapMarkers = [];
 let _renderedPosById = new Map(); // nodeId/userId → {lat, lon} for all rendered markers
 let _mapCircles = [];
@@ -3303,8 +3306,17 @@ let _mapRoleFilter = new Set(); // empty = show all
 let _mapHoverMaxHops = 3;
 let _mapShowTooltips = true;
 const MAP_PREFS_STORAGE_KEY = "nodesMapPrefs";
+const MAP_TILE_CACHE_NAME = "osm-tiles-v1";
+const MAP_TILE_CACHE_META_STORAGE_KEY = "nodesMapCachedAreas";
+const MAP_TILE_CACHE_MAX_TILES = 900;
+const MAP_TILE_CACHE_CONCURRENCY = 6;
 let _mapPrefsSaveTimer = null;
 let _mapSavedView = null;
+let _mapCacheSelectionActive = false;
+let _mapCacheBusy = false;
+let _mapCacheSelectionStart = null;
+let _mapCachePreviewRect = null;
+let _mapCacheOverlay = null;
 
 // Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ TAK / ATAK layer mode Р Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљР Р†РІР‚СњР вЂљ
 let _takIncomingLayer = null;          // Leaflet LayerGroup for network-received features
@@ -3395,6 +3407,356 @@ function _scheduleSaveMapPrefs() {
     _mapPrefsSaveTimer = null;
     _saveMapPrefs();
   }, 150);
+}
+
+function _loadCachedMapAreas() {
+  try {
+    const raw = localStorage.getItem(MAP_TILE_CACHE_META_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function _saveCachedMapAreas(items) {
+  try {
+    localStorage.setItem(MAP_TILE_CACHE_META_STORAGE_KEY, JSON.stringify(items.slice(0, 12)));
+  } catch {}
+}
+
+function _getMapCacheSummaryText() {
+  const count = _loadCachedMapAreas().length;
+  if (!count) {
+    return "No cached areas";
+  }
+  return count === 1 ? "1 cached area" : `${count} cached areas`;
+}
+
+function _setNodesMapCacheStatus(text, tone = "") {
+  if (!nodesMapCacheStatus) {
+    return;
+  }
+  nodesMapCacheStatus.textContent = text || _getMapCacheSummaryText();
+  nodesMapCacheStatus.classList.toggle("is-success", tone === "success");
+  nodesMapCacheStatus.classList.toggle("is-error", tone === "error");
+}
+
+function _syncNodesMapCacheUi() {
+  if (nodesMapCacheButton) {
+    nodesMapCacheButton.disabled = _mapCacheBusy || typeof caches === "undefined";
+    nodesMapCacheButton.classList.toggle("is-active", _mapCacheSelectionActive);
+    nodesMapCacheButton.setAttribute("aria-pressed", _mapCacheSelectionActive ? "true" : "false");
+    nodesMapCacheButton.textContent = _mapCacheBusy
+      ? "Caching..."
+      : (_mapCacheSelectionActive ? "Cancel Cache" : "Cache Area");
+  }
+  if (!nodesMapCacheStatus?.textContent) {
+    _setNodesMapCacheStatus(_getMapCacheSummaryText());
+  }
+}
+
+function _ensureMapCacheOverlay() {
+  if (_mapCacheOverlay || !nodesMapContainer) {
+    return _mapCacheOverlay;
+  }
+  const overlay = document.createElement("div");
+  overlay.id = "nodesMapCacheOverlay";
+  overlay.className = "nodes-map-cache-overlay";
+  overlay.addEventListener("mousemove", _handleMapCacheOverlayMove);
+  overlay.addEventListener("click", _handleMapCacheOverlayClick);
+  overlay.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    _cancelMapCacheSelection();
+  });
+  nodesMapContainer.appendChild(overlay);
+  _mapCacheOverlay = overlay;
+  return overlay;
+}
+
+function _clearMapCachePreview() {
+  if (_mapCachePreviewRect) {
+    try { _mapCachePreviewRect.remove(); } catch (_) {}
+    _mapCachePreviewRect = null;
+  }
+}
+
+function _setMapCachePreview(startLatLng, endLatLng) {
+  if (!_mapInstance || !startLatLng || !endLatLng) {
+    return;
+  }
+  const bounds = L.latLngBounds(startLatLng, endLatLng);
+  if (_mapCachePreviewRect) {
+    _mapCachePreviewRect.setBounds(bounds);
+    return;
+  }
+  _mapCachePreviewRect = L.rectangle(bounds, {
+    color: "#4a9eff",
+    weight: 1.5,
+    opacity: 0.95,
+    fillOpacity: 0.08,
+    dashArray: "6 4",
+    interactive: false,
+  }).addTo(_mapInstance);
+}
+
+function _setMapCacheSelectionActive(active) {
+  _mapCacheSelectionActive = Boolean(active);
+  nodesMapContainer?.classList.toggle("nodes-map-caching", _mapCacheSelectionActive);
+  const overlay = _ensureMapCacheOverlay();
+  if (overlay) {
+    overlay.classList.toggle("active", _mapCacheSelectionActive);
+  }
+  _syncNodesMapCacheUi();
+}
+
+function _cancelMapCacheSelection(statusText = "") {
+  _mapCacheSelectionStart = null;
+  _clearMapCachePreview();
+  _setMapCacheSelectionActive(false);
+  _setNodesMapCacheStatus(statusText || _getMapCacheSummaryText());
+}
+
+function _startMapCacheSelection() {
+  if (!_mapInstance || _mapCacheBusy) {
+    return;
+  }
+  _mapCacheSelectionStart = null;
+  _clearMapCachePreview();
+  _setMapCacheSelectionActive(true);
+  _setNodesMapCacheStatus("Click the first corner of the area");
+}
+
+function _toggleMapCacheSelection() {
+  if (_mapCacheSelectionActive) {
+    _cancelMapCacheSelection();
+  } else {
+    _startMapCacheSelection();
+  }
+}
+
+function _getMapCacheLatLngFromPointerEvent(event) {
+  if (!_mapInstance || !_mapCacheOverlay) {
+    return null;
+  }
+  const rect = _mapCacheOverlay.getBoundingClientRect();
+  const point = L.point(event.clientX - rect.left, event.clientY - rect.top);
+  return _mapInstance.containerPointToLatLng(point);
+}
+
+function _handleMapCacheOverlayMove(event) {
+  if (!_mapCacheSelectionActive || !_mapCacheSelectionStart) {
+    return;
+  }
+  const latlng = _getMapCacheLatLngFromPointerEvent(event);
+  if (!latlng) {
+    return;
+  }
+  _setMapCachePreview(_mapCacheSelectionStart, latlng);
+}
+
+function _clampMapCacheLatitude(value) {
+  return Math.max(-85.05112878, Math.min(85.05112878, Number(value) || 0));
+}
+
+function _longitudeToTileX(longitude, zoom) {
+  const scale = 2 ** zoom;
+  return Math.floor(((Number(longitude) + 180) / 360) * scale);
+}
+
+function _latitudeToTileY(latitude, zoom) {
+  const latRad = _clampMapCacheLatitude(latitude) * Math.PI / 180;
+  const scale = 2 ** zoom;
+  const mercator = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+  return Math.floor(((1 - (mercator / Math.PI)) / 2) * scale);
+}
+
+function _getTileRangeForBounds(bounds, zoom) {
+  const north = bounds.getNorth();
+  const south = bounds.getSouth();
+  const west = bounds.getWest();
+  const east = bounds.getEast();
+  const maxIndex = (2 ** zoom) - 1;
+  const minX = Math.max(0, Math.min(maxIndex, _longitudeToTileX(west, zoom)));
+  const maxX = Math.max(0, Math.min(maxIndex, _longitudeToTileX(east, zoom)));
+  const minY = Math.max(0, Math.min(maxIndex, _latitudeToTileY(north, zoom)));
+  const maxY = Math.max(0, Math.min(maxIndex, _latitudeToTileY(south, zoom)));
+  return {
+    minX: Math.min(minX, maxX),
+    maxX: Math.max(minX, maxX),
+    minY: Math.min(minY, maxY),
+    maxY: Math.max(minY, maxY),
+  };
+}
+
+function _estimateTileCountForLevels(bounds, zoomLevels) {
+  return zoomLevels.reduce((sum, zoom) => {
+    const range = _getTileRangeForBounds(bounds, zoom);
+    return sum + ((range.maxX - range.minX + 1) * (range.maxY - range.minY + 1));
+  }, 0);
+}
+
+function _getMapCacheZoomLevels(bounds) {
+  const baseZoom = Math.max(0, Math.min(19, Math.round(_mapInstance?.getZoom?.() || 0)));
+  const candidateLevels = Array.from(new Set([
+    Math.max(0, baseZoom - 1),
+    baseZoom,
+    Math.min(19, baseZoom + 1),
+    Math.min(19, baseZoom + 2),
+  ])).sort((left, right) => left - right);
+  const zoomLevels = candidateLevels.slice();
+
+  while (zoomLevels.length > 1 && _estimateTileCountForLevels(bounds, zoomLevels) > MAP_TILE_CACHE_MAX_TILES) {
+    let removeIndex = 0;
+    let removeScore = -Infinity;
+    zoomLevels.forEach((zoom, index) => {
+      const score = Math.abs(zoom - baseZoom) * 10 + (zoom > baseZoom ? 1 : 0);
+      if (score > removeScore) {
+        removeScore = score;
+        removeIndex = index;
+      }
+    });
+    zoomLevels.splice(removeIndex, 1);
+  }
+
+  if (_estimateTileCountForLevels(bounds, zoomLevels) > MAP_TILE_CACHE_MAX_TILES) {
+    throw new Error("Selected area is too large. Zoom in or pick a smaller region.");
+  }
+  return zoomLevels;
+}
+
+function _buildTileCacheRequests(bounds, zoomLevels) {
+  if (!_mapTileLayer) {
+    return [];
+  }
+  const requests = [];
+  zoomLevels.forEach((zoom) => {
+    const range = _getTileRangeForBounds(bounds, zoom);
+    for (let x = range.minX; x <= range.maxX; x += 1) {
+      for (let y = range.minY; y <= range.maxY; y += 1) {
+        const coords = { x, y, z: zoom };
+        const url = _mapTileLayer.getTileUrl(coords);
+        requests.push({
+          zoom,
+          x,
+          y,
+          url,
+          request: new Request(url, { mode: "no-cors", credentials: "omit" }),
+        });
+      }
+    }
+  });
+  return requests;
+}
+
+async function _cacheMapArea(bounds) {
+  if (!_mapInstance || !_mapTileLayer) {
+    return;
+  }
+  _mapCacheBusy = true;
+  _setMapCacheSelectionActive(false);
+  _setNodesMapCacheStatus("Preparing tile cache...");
+  _syncNodesMapCacheUi();
+
+  try {
+    const zoomLevels = _getMapCacheZoomLevels(bounds);
+    const requests = _buildTileCacheRequests(bounds, zoomLevels);
+    if (!requests.length) {
+      throw new Error("No tiles to cache for this area.");
+    }
+
+    const cache = await caches.open(MAP_TILE_CACHE_NAME);
+    let completed = 0;
+    let cachedNow = 0;
+    let alreadyCached = 0;
+    let failed = 0;
+    let nextIndex = 0;
+
+    _setNodesMapCacheStatus(`Caching 0/${requests.length} tiles...`);
+
+    const worker = async () => {
+      while (nextIndex < requests.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        const tile = requests[currentIndex];
+        try {
+          const existing = await cache.match(tile.request);
+          if (existing) {
+            alreadyCached += 1;
+          } else {
+            const response = await fetch(tile.request);
+            if (response && (response.ok || response.type === "opaque")) {
+              await cache.put(tile.request, response.clone());
+              cachedNow += 1;
+            } else {
+              failed += 1;
+            }
+          }
+        } catch (_) {
+          failed += 1;
+        } finally {
+          completed += 1;
+          _setNodesMapCacheStatus(`Caching ${completed}/${requests.length} tiles...`);
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(MAP_TILE_CACHE_CONCURRENCY, requests.length) }, () => worker())
+    );
+
+    const savedAreas = _loadCachedMapAreas();
+    savedAreas.unshift({
+      id: `area-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      zoomLevels,
+      totalTiles: requests.length,
+      cachedNow,
+      alreadyCached,
+      failed,
+      bounds: {
+        north: bounds.getNorth(),
+        south: bounds.getSouth(),
+        west: bounds.getWest(),
+        east: bounds.getEast(),
+      },
+    });
+    _saveCachedMapAreas(savedAreas);
+
+    const summary = failed > 0
+      ? `Cached ${cachedNow + alreadyCached}/${requests.length} tiles (${failed} failed)`
+      : `Cached ${requests.length} tiles locally`;
+    _setNodesMapCacheStatus(summary, failed > 0 ? "" : "success");
+  } catch (error) {
+    _setNodesMapCacheStatus(error?.message || "Tile cache failed", "error");
+  } finally {
+    _mapCacheBusy = false;
+    _mapCacheSelectionStart = null;
+    _clearMapCachePreview();
+    _syncNodesMapCacheUi();
+  }
+}
+
+function _handleMapCacheOverlayClick(event) {
+  if (!_mapCacheSelectionActive || _mapCacheBusy) {
+    return;
+  }
+  const latlng = _getMapCacheLatLngFromPointerEvent(event);
+  if (!latlng) {
+    return;
+  }
+  if (!_mapCacheSelectionStart) {
+    _mapCacheSelectionStart = latlng;
+    _setMapCachePreview(latlng, latlng);
+    _setNodesMapCacheStatus("Click the opposite corner to save tiles");
+    return;
+  }
+  const bounds = L.latLngBounds(_mapCacheSelectionStart, latlng);
+  if (Math.abs(bounds.getNorth() - bounds.getSouth()) < 0.0005 || Math.abs(bounds.getEast() - bounds.getWest()) < 0.0005) {
+    _setNodesMapCacheStatus("Area is too small. Pick a larger rectangle.", "error");
+    return;
+  }
+  void _cacheMapArea(bounds);
 }
 
 function _syncMapControls() {
@@ -3761,11 +4123,12 @@ function openNodesMap() {
       zoomDelta: 0.25,
     });
     _mapInstance.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank">Leaflet</a>');
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    _mapTileLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
       attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
       subdomains: "abcd",
       maxZoom: 19,
     }).addTo(_mapInstance);
+    _ensureMapCacheOverlay();
 
     const toggleControl = L.control({ position: "bottomleft" });
     toggleControl.onAdd = function () {
@@ -3930,6 +4293,7 @@ function openNodesMap() {
       _scheduleSaveMapPrefs();
     });
     _syncMapControls();
+    _syncNodesMapCacheUi();
     _takRefreshPanel();
     if (_mapTakMode) {
       _takOpenPanel();
@@ -3941,11 +4305,16 @@ function openNodesMap() {
     _mapInstance.invalidateSize();
     _takRenderAllIncomingFeatures();
     _syncMapControls();
+    _setNodesMapCacheStatus(_getMapCacheSummaryText());
+    _syncNodesMapCacheUi();
     _renderMapNodes(!_mapSavedView);
   });
 }
 
 function closeNodesMap() {
+  if (_mapCacheSelectionActive) {
+    _cancelMapCacheSelection();
+  }
   nodesMapModal.classList.add("hidden");
   nodesMapModal.setAttribute("aria-hidden", "true");
   const panel = nodesMapModal.querySelector(".modal-panel--map");
@@ -7488,6 +7857,9 @@ walletModal.addEventListener("click", (event) => {
 
 openNodesMapButton.addEventListener("click", openNodesMap);
 nodesMapClose.addEventListener("click", closeNodesMap);
+if (nodesMapCacheButton) {
+  nodesMapCacheButton.addEventListener("click", _toggleMapCacheSelection);
+}
 nodesMapModal.addEventListener("click", (event) => {
   if (event.target.hasAttribute("data-close-nodes-map")) {
     closeNodesMap();

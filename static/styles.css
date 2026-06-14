@@ -1437,6 +1437,39 @@ body.is-resizing-panels {
   text-transform: none;
 }
 
+.nodes-map-cache-button {
+  min-width: 0;
+  height: 28px;
+  padding-inline: 8px;
+}
+
+.nodes-map-cache-button.is-active {
+  background: #1a3040;
+  color: #4a9eff;
+  border-color: #4a9eff;
+}
+
+.nodes-map-cache-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.nodes-map-cache-status {
+  min-width: 140px;
+  max-width: 240px;
+  font-size: 9px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.nodes-map-cache-status.is-success {
+  color: var(--success);
+}
+
+.nodes-map-cache-status.is-error {
+  color: var(--danger);
+}
+
 .nodes-map-container {
   position: relative;
   width: 100%;
@@ -1449,6 +1482,18 @@ body.is-resizing-panels {
   background: #1a1f25;
   font-family: "Press Start Local", monospace;
   font-size: 10px;
+}
+
+.nodes-map-cache-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1200;
+  display: none;
+  cursor: crosshair;
+}
+
+.nodes-map-cache-overlay.active {
+  display: block;
 }
 
 .nodes-map-marker-wrap {
@@ -5234,7 +5279,9 @@ textarea,
 
 /* Crosshair cursor while drawing */
 .nodes-map-container.tak-drawing,
-.nodes-map-container.tak-drawing .leaflet-container {
+.nodes-map-container.tak-drawing .leaflet-container,
+.nodes-map-container.nodes-map-caching,
+.nodes-map-container.nodes-map-caching .leaflet-container {
   cursor: crosshair !important;
 }
 /* TAK waypoint markers */
