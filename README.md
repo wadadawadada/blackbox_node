@@ -1,10 +1,12 @@
-# BLACKBOX NODE - Offline AI, Meshtastic, TAK / ATAK, and Off-Grid Payments
+# BLACKBOX NODE - Offline AI, Meshtastic/MeshCore, TAK / ATAK, and Off-Grid Payments
 
 > **Built for when the internet is gone.**
 
 Website: [blackbox.host](https://blackbox.host/)
 
-Blackbox Node is an offline-first command post for [Meshtastic](https://meshtastic.org/) and **LoRa** networks. It combines a fully local LLM, radio messaging, **TAK / ATAK** map-object exchange over **Cursor on Target (CoT)**, telemetry, and **Bitcoin + Cashu** payments in one self-hosted web UI.
+Blackbox Node is an offline-first command post for [Meshtastic](https://meshtastic.org/) or [MeshCore](https://meshcore.co.uk/) **LoRa** networks. It combines a fully local LLM, radio messaging, **TAK / ATAK** map-object exchange over **Cursor on Target (CoT)**, telemetry, and **Bitcoin + Cashu** payments in one self-hosted web UI.
+
+Meshtastic and MeshCore are two different, incompatible LoRa firmware/protocol families. Blackbox Node talks to whichever one your radio runs through a swappable bridge process; pick the transport in **Settings -> Device Settings -> Mesh Protocol**. Only one transport is active at a time.
 
 It is designed for **off-grid communications**, **disaster response**, **field operations**, **community mesh networks**, and anyone who wants local AI and situational awareness without cloud infrastructure, without a cell tower, and without a remote server.
 
@@ -304,6 +306,16 @@ On launch:
 - `weather` / `forecast` query returns the latest parsed weather data
 - Reconnect and port-selection UI
 
+**MeshCore / Radio**
+
+- Alternate transport, selected instead of Meshtastic in Device Settings
+- Connects over serial, BLE, or TCP depending on your MeshCore companion radio
+- Contact list shown as the node list (public-key based addressing, no numeric node id)
+- Text DMs and channel broadcasts work the same as on Meshtastic
+- TAK/CoT works over a MeshCore-specific binary datagram; it does **not** interoperate with Meshtastic's `ATAK_FORWARDER` traffic — both ends must run MeshCore
+- No telemetry/position push in the MeshCore companion protocol: `/weather`, `/battery`, and `/nodecheck` reply with "not supported on MeshCore" instead of guessing
+- No LoRa modem-preset/region/hop-limit/tx-power configuration exposed (Meshtastic-only concept); those fields are hidden in Device Settings when MeshCore is active
+
 **TAK / ATAK / CoT**
 
 - Dedicated TAK layer panel in the web map
@@ -349,11 +361,12 @@ On launch:
 ## Notes
 
 - The app runs without a radio. Meshtastic, TAK, and mesh features simply show as disconnected.
-- If Python is missing, the web UI and local AI still work, but Meshtastic and TAK transport features stay unavailable.
+- If Python is missing, the web UI and local AI still work, but Meshtastic/MeshCore and TAK transport features stay unavailable.
 - Automatic bootstrap currently targets Windows for `llama.cpp` runtime download.
-- Downloading models or auto-installing Python packages requires internet during `npm install`. Runtime is otherwise fully local.
+- Downloading models or auto-installing Python packages requires internet during `npm install`. Runtime is otherwise fully local. The `meshcore` Python package is only installed on demand, the first time you switch transport to MeshCore.
 - Cashu token operations usually require internet access to reach the mint. Tokens already in your wallet can still be held and transferred offline, but creating a new send offline only works when your existing proofs already match the exact amount; otherwise the wallet must contact the mint to split/change proofs.
 - Current bridge support is strongest for **CoT XML / `ATAK_FORWARDER`** traffic. Raw `ATAK_PLUGIN` protobuf payloads are captured for debugging, but are not fully decoded by the bridge yet.
+- Meshtastic and MeshCore are separate, non-interoperable networks. Switching transport does not bridge the two — nodes on one protocol cannot see nodes on the other.
 
 ---
 

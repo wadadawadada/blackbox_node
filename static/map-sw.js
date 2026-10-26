@@ -1,11 +1,17 @@
-const TILE_CACHE = "osm-tiles-v1";
+const TILE_CACHE = "osm-tiles-v2";
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener("activate", (e) =>
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith("osm-tiles-") && k !== TILE_CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  )
+);
 
 self.addEventListener("fetch", (event) => {
   const url = event.request.url;
-  if (!url.includes("basemaps.cartocdn.com")) return;
+  if (!url.includes("tile.openstreetmap.org")) return;
 
   event.respondWith(
     caches.open(TILE_CACHE).then(async (cache) => {
