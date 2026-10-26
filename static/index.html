@@ -1191,6 +1191,20 @@
       <div class="device-meta-form">
 
         <div class="device-meta-section">
+          <div class="device-meta-section-label">Transport</div>
+          <div class="device-meta-row device-meta-row-4">
+            <label class="device-meta-field device-meta-field-wide" for="deviceMetaTransport">
+              <span class="device-meta-label">Mesh Protocol</span>
+              <select id="deviceMetaTransport">
+                <option value="meshtastic">Meshtastic</option>
+                <option value="meshcore">MeshCore</option>
+              </select>
+            </label>
+          </div>
+          <div id="deviceMetaTransportStatus" class="device-status-text" role="status" aria-live="polite"></div>
+        </div>
+
+        <div class="device-meta-section" data-transport-only="meshtastic">
           <div class="device-meta-section-label">Identity</div>
           <div class="device-meta-row device-meta-row-4">
             <label class="device-meta-field" for="deviceMetaShortName">
@@ -1212,7 +1226,7 @@
           </div>
         </div>
 
-        <div class="device-meta-section">
+        <div class="device-meta-section" data-transport-only="meshtastic">
           <div class="device-meta-section-label">LoRa Radio</div>
           <div class="device-meta-row device-meta-row-4">
             <label class="device-meta-field device-meta-field-wide" for="deviceMetaModemPreset">
@@ -1285,7 +1299,7 @@
         </div>
 
         <div class="device-meta-section device-meta-section-inline">
-          <div class="device-meta-inline-group device-meta-tak-group">
+          <div class="device-meta-inline-group device-meta-tak-group" data-transport-only="meshtastic">
             <div class="device-meta-section-label">TAK</div>
             <div class="device-meta-tak-row">
               <label class="device-meta-field" for="deviceMetaTakChannel">

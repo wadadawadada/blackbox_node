@@ -94,7 +94,7 @@ Communities and independent operators can deploy their own nodes and gradually b
 Blackbox already exists as a **working prototype**, not just a concept.
 
 Implemented or working components include:
-- Meshtastic integration as the current primary transport
+- Meshtastic integration as the original primary transport, with MeshCore as a second selectable transport (feature-limited: no telemetry/position push, no cross-protocol TAK interop)
 - local message transfer over mesh
 - eCash / value packet transport over the existing text channel using chunking
 - a local node acting as a service layer on top of mesh rather than just a radio device
@@ -127,7 +127,8 @@ Blackbox should integrate where possible with open ecosystems such as Meshtastic
 Blackbox is structured as a local node with multiple layers:
 
 ### Transport layer
-- Meshtastic / LoRa as the current primary transport
+- Meshtastic / LoRa as the original primary transport
+- MeshCore / LoRa as a second, swappable transport (selected in Device Settings; the two are not interoperable with each other)
 - future support for new generations of LoRa chips with significantly higher data throughput
 - potential support for other transport layers suitable for off-grid deployment
 

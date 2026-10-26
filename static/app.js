@@ -233,6 +233,8 @@ const clearSwapsButton = document.getElementById("clearSwapsButton");
 const meshAiReplyToggle = document.getElementById("meshAiReplyToggle");
 const deviceMetaModal = document.getElementById("deviceMetaModal");
 const deviceMetaClose = document.getElementById("deviceMetaClose");
+const deviceMetaTransport = document.getElementById("deviceMetaTransport");
+const deviceMetaTransportStatus = document.getElementById("deviceMetaTransportStatus");
 const deviceMetaShortName = document.getElementById("deviceMetaShortName");
 const deviceMetaLongName = document.getElementById("deviceMetaLongName");
 const deviceMetaLat = document.getElementById("deviceMetaLat");
@@ -2022,6 +2024,45 @@ function applyMeshAiReply(enabled) {
   meshAiReplyToggle.classList.toggle("ai-reply-btn--on", enabled);
 }
 
+function applyTransportVisibility(transport) {
+  document.querySelectorAll("[data-transport-only]").forEach((el) => {
+    el.classList.toggle("hidden", el.getAttribute("data-transport-only") !== transport);
+  });
+}
+
+async function loadDeviceMetaTransport() {
+  if (!deviceMetaTransport) return "meshtastic";
+  try {
+    const payload = await fetchJson("/api/mesh/transport");
+    const transport = payload.transport === "meshcore" ? "meshcore" : "meshtastic";
+    deviceMetaTransport.value = transport;
+    applyTransportVisibility(transport);
+    return transport;
+  } catch (err) {
+    applyTransportVisibility("meshtastic");
+    return "meshtastic";
+  }
+}
+
+async function changeDeviceMetaTransport() {
+  if (!deviceMetaTransport) return;
+  const transport = deviceMetaTransport.value === "meshcore" ? "meshcore" : "meshtastic";
+  applyTransportVisibility(transport);
+  if (deviceMetaTransportStatus) deviceMetaTransportStatus.textContent = `Switching to ${transport}...`;
+  try {
+    await fetchJson("/api/mesh/transport", { method: "POST", body: JSON.stringify({ transport }) });
+    if (deviceMetaTransportStatus) deviceMetaTransportStatus.textContent = `Active: ${transport}`;
+    await loadStatus();
+    refreshDeviceMetaPorts();
+  } catch (err) {
+    if (deviceMetaTransportStatus) deviceMetaTransportStatus.textContent = `Switch failed: ${err.message}`;
+  }
+}
+
+if (deviceMetaTransport) {
+  deviceMetaTransport.addEventListener("change", changeDeviceMetaTransport);
+}
+
 function openDeviceMetaModal() {
   deviceMetaModal.classList.remove("hidden");
   deviceMetaModal.setAttribute("aria-hidden", "false");
@@ -2037,6 +2078,8 @@ function openDeviceMetaModal() {
   if (deviceMetaRegion) deviceMetaRegion.value = "UNSET";
   if (deviceMetaTxPower) deviceMetaTxPower.value = "";
   if (deviceMetaNodeRole) deviceMetaNodeRole.value = "CLIENT";
+  if (deviceMetaTransportStatus) deviceMetaTransportStatus.textContent = "";
+  loadDeviceMetaTransport();
   fetchJson("/api/device-meta").then((data) => {
     deviceMetaShortName.value = data.shortName || "";
     deviceMetaLongName.value = data.longName || "";
@@ -3306,7 +3349,7 @@ let _mapRoleFilter = new Set(); // empty = show all
 let _mapHoverMaxHops = 3;
 let _mapShowTooltips = true;
 const MAP_PREFS_STORAGE_KEY = "nodesMapPrefs";
-const MAP_TILE_CACHE_NAME = "osm-tiles-v1";
+const MAP_TILE_CACHE_NAME = "osm-tiles-v2";
 const MAP_TILE_CACHE_META_STORAGE_KEY = "nodesMapCachedAreas";
 const MAP_TILE_CACHE_MAX_TILES = 900;
 const MAP_TILE_CACHE_CONCURRENCY = 6;
@@ -4123,10 +4166,11 @@ function openNodesMap() {
       zoomDelta: 0.25,
     });
     _mapInstance.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank">Leaflet</a>');
-    _mapTileLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-      subdomains: "abcd",
+    // CARTO basemaps now return an "API key required" watermark, so use OSM tiles darkened via CSS.
+    _mapTileLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
       maxZoom: 19,
+      className: "map-tiles-dark",
     }).addTo(_mapInstance);
     _ensureMapCacheOverlay();
 

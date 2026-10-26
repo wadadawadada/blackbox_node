@@ -429,23 +429,23 @@ function findPythonLauncher() {
   return null;
 }
 
-function ensureMeshtasticDependency() {
-  if (exists(path.join(PYDEPS_DIR, "meshtastic"))) {
-    log("python meshtastic package already present");
+function ensurePythonPackageDependency(packageName) {
+  if (exists(path.join(PYDEPS_DIR, packageName))) {
+    log(`python ${packageName} package already present`);
     return;
   }
 
   const pythonLauncher = findPythonLauncher();
   if (!pythonLauncher) {
-    log("python not found, skipping Meshtastic Python dependency bootstrap");
+    log(`python not found, skipping ${packageName} Python dependency bootstrap`);
     return;
   }
 
   fs.mkdirSync(PYDEPS_DIR, { recursive: true });
-  log("installing Meshtastic Python package into ./pydeps");
+  log(`installing ${packageName} Python package into ./pydeps`);
   const result = spawnSync(
     pythonLauncher,
-    ["-m", "pip", "install", "--disable-pip-version-check", "--target", PYDEPS_DIR, "meshtastic"],
+    ["-m", "pip", "install", "--disable-pip-version-check", "--target", PYDEPS_DIR, packageName],
     {
       cwd: ROOT_DIR,
       stdio: "inherit",
@@ -454,11 +454,26 @@ function ensureMeshtasticDependency() {
   );
 
   if (result.status !== 0) {
-    log("Meshtastic Python dependency install failed; radio features may stay unavailable until Python is fixed");
+    log(`${packageName} Python dependency install failed; radio features may stay unavailable until Python is fixed`);
     return;
   }
 
-  log("Meshtastic Python package installed");
+  log(`${packageName} Python package installed`);
+}
+
+function ensureMeshtasticDependency() {
+  ensurePythonPackageDependency("meshtastic");
+}
+
+function getConfiguredMeshTransport() {
+  try {
+    const settingsPath = path.join(ROOT_DIR, "data", "settings.json");
+    if (!exists(settingsPath)) return "meshtastic";
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    return settings.meshTransport === "meshcore" ? "meshcore" : "meshtastic";
+  } catch {
+    return "meshtastic";
+  }
 }
 
 async function main() {
@@ -470,6 +485,11 @@ async function main() {
   await ensureLlamaRuntime();
   await ensureStarterModel();
   ensureMeshtasticDependency();
+  // Only bootstrap the meshcore package if the user has already switched to
+  // that transport in a previous run; a fresh install shouldn't fetch both.
+  if (getConfiguredMeshTransport() === "meshcore") {
+    ensurePythonPackageDependency("meshcore");
+  }
 }
 
 main().catch((error) => {

@@ -329,6 +329,30 @@ function getConfiguredMeshtasticPort() {
     : "";
 }
 
+const MESH_TRANSPORTS = ["meshtastic", "meshcore"];
+
+function getConfiguredMeshTransport() {
+  const value = typeof appSettings.meshTransport === "string" ? appSettings.meshTransport.trim().toLowerCase() : "";
+  return MESH_TRANSPORTS.includes(value) ? value : "meshtastic";
+}
+
+function setConfiguredMeshTransport(transport) {
+  const normalized = typeof transport === "string" ? transport.trim().toLowerCase() : "";
+  appSettings.meshTransport = MESH_TRANSPORTS.includes(normalized) ? normalized : "meshtastic";
+  persistSettings();
+}
+
+function getConfiguredMeshCorePort() {
+  return typeof appSettings.meshcorePort === "string" && appSettings.meshcorePort.trim()
+    ? appSettings.meshcorePort.trim()
+    : "";
+}
+
+function setConfiguredMeshCorePort(port) {
+  appSettings.meshcorePort = typeof port === "string" ? port.trim() : "";
+  persistSettings();
+}
+
 function getConfiguredTakChannel() {
   return normalizeChannelIndex(appSettings.takMeshtasticChannel, 0);
 }
@@ -2783,9 +2807,14 @@ function buildSlashCommandFallback(commandName, context) {
   );
 }
 
+const MESHCORE_UNSUPPORTED_SLASH_COMMANDS = new Set(["/weather", "/battery", "/nodecheck"]);
+
 async function generateSlashCommandReply(peerId, slashCommand) {
   if (slashCommand.name === "/help") {
     return buildSlashCommandFallback("/help", {});
+  }
+  if (getConfiguredMeshTransport() === "meshcore" && MESHCORE_UNSUPPORTED_SLASH_COMMANDS.has(slashCommand.name)) {
+    return `${slashCommand.name} is not supported on the MeshCore transport (no telemetry/position data available).`;
   }
   const aiSettings = getAiSettingsPayload();
   let context;
@@ -3937,7 +3966,16 @@ function buildPythonEnv(includeSelectedPort = true) {
   } else {
     delete env.MESHTASTIC_PORT;
   }
+  if (includeSelectedPort && getConfiguredMeshCorePort()) {
+    env.MESHCORE_PORT = getConfiguredMeshCorePort();
+  } else {
+    delete env.MESHCORE_PORT;
+  }
   return env;
+}
+
+function getBridgeScriptForTransport(transport) {
+  return transport === "meshcore" ? "bridge_meshcore.py" : "bridge.py";
 }
 
 function findPythonLauncher() {
@@ -3955,16 +3993,16 @@ function findPythonLauncher() {
   return null;
 }
 
-function ensureMeshtasticDependency(pythonLauncher) {
-  if (fs.existsSync(path.join(PYDEPS_DIR, "meshtastic"))) {
+function ensurePythonPackageInstalled(pythonLauncher, packageName) {
+  if (fs.existsSync(path.join(PYDEPS_DIR, packageName))) {
     return true;
   }
   fs.mkdirSync(PYDEPS_DIR, { recursive: true });
 
-  console.log("Installing local project Python dependency: meshtastic");
+  console.log(`Installing local project Python dependency: ${packageName}`);
   const result = spawnSync(
     pythonLauncher,
-    ["-m", "pip", "install", "--disable-pip-version-check", "--target", PYDEPS_DIR, "meshtastic"],
+    ["-m", "pip", "install", "--disable-pip-version-check", "--target", PYDEPS_DIR, packageName],
     {
       stdio: "inherit",
       shell: false,
@@ -3973,16 +4011,29 @@ function ensureMeshtasticDependency(pythonLauncher) {
   return result.status === 0;
 }
 
+function ensureMeshtasticDependency(pythonLauncher) {
+  return ensurePythonPackageInstalled(pythonLauncher, "meshtastic");
+}
+
+function ensureMeshCoreDependency(pythonLauncher) {
+  return ensurePythonPackageInstalled(pythonLauncher, "meshcore");
+}
+
+function ensureBridgeDependency(pythonLauncher, transport) {
+  return transport === "meshcore" ? ensureMeshCoreDependency(pythonLauncher) : ensureMeshtasticDependency(pythonLauncher);
+}
+
 function listMeshtasticPorts() {
+  const transport = getConfiguredMeshTransport();
   const pythonLauncher = findPythonLauncher();
   if (!pythonLauncher) {
     return { ok: false, error: "Python not found in PATH", selectedPort: getConfiguredMeshtasticPort() || null, ports: [] };
   }
-  if (!ensureMeshtasticDependency(pythonLauncher)) {
-    return { ok: false, error: "Failed to install/load meshtastic package", selectedPort: getConfiguredMeshtasticPort() || null, ports: [] };
+  if (!ensureBridgeDependency(pythonLauncher, transport)) {
+    return { ok: false, error: `Failed to install/load ${transport} package`, selectedPort: getConfiguredMeshtasticPort() || null, ports: [] };
   }
 
-  const result = spawnSync(pythonLauncher, ["bridge.py", "--list-ports"], {
+  const result = spawnSync(pythonLauncher, [getBridgeScriptForTransport(transport), "--list-ports"], {
     cwd: __dirname,
     env: buildPythonEnv(false),
     encoding: "utf8",
@@ -4837,9 +4888,21 @@ function enqueueMeshBatch(
   return queued;
 }
 
+// MeshCore's channel/binary datagram budget (~163 bytes) is close to but not
+// identical to Meshtastic's per-packet limit; keep them as separate knobs
+// rather than assuming one transport's constant fits the other.
+const MESH_PACKET_MAX_BYTES_MESHCORE = 150;
+
+function getMeshPacketMaxBytes(isCashu) {
+  if (getConfiguredMeshTransport() === "meshcore") {
+    return MESH_PACKET_MAX_BYTES_MESHCORE;
+  }
+  return isCashu ? MESH_PACKET_MAX_BYTES_CASHU : MESH_PACKET_MAX_BYTES;
+}
+
 async function sendMeshReply(destinationId, text, sender = "local-ai", options = {}) {
   const isCashu = isCashuMeshText(text);
-  const packetMaxBytes = isCashu ? MESH_PACKET_MAX_BYTES_CASHU : MESH_PACKET_MAX_BYTES;
+  const packetMaxBytes = getMeshPacketMaxBytes(isCashu);
   const batchDelayMs = isCashu ? MESH_PACKET_BATCH_DELAY_MS_CASHU : MESH_PACKET_BATCH_DELAY_MS;
   const packets = buildMeshPackets(text, packetMaxBytes);
   await enqueueMeshBatch(destinationId, packets, sender, batchDelayMs, options);
@@ -5290,22 +5353,23 @@ function stopBridge() {
 }
 
 function startBridge() {
+  const transport = getConfiguredMeshTransport();
   const pythonLauncher = findPythonLauncher();
   if (!pythonLauncher) {
     updateMeshtasticStatus({ connected: false, mode: "error", error: "Python not found in PATH" });
     return;
   }
 
-  const dependencyReady = ensureMeshtasticDependency(pythonLauncher);
+  const dependencyReady = ensureBridgeDependency(pythonLauncher, transport);
   if (!dependencyReady) {
-    updateMeshtasticStatus({ connected: false, mode: "error", error: "Failed to install/load meshtastic package" });
+    updateMeshtasticStatus({ connected: false, mode: "error", error: `Failed to install/load ${transport} package` });
     return;
   }
 
   updateMeshtasticStatus({ connected: false, mode: "starting", error: null });
 
   try {
-    bridgeProcess = spawn(pythonLauncher, ["bridge.py"], {
+    bridgeProcess = spawn(pythonLauncher, [getBridgeScriptForTransport(transport)], {
       cwd: __dirname,
       env: buildPythonEnv(true),
       stdio: ["pipe", "pipe", "pipe"],
@@ -5657,6 +5721,25 @@ const server = http.createServer(async (req, res) => {
         : undefined;
       const status = restartBridge(port);
       return sendJson(res, 200, { ok: true, meshtastic: status, ports: listMeshtasticPorts() });
+    }
+
+    if (req.method === "GET" && req.url === "/api/mesh/transport") {
+      return sendJson(res, 200, { transport: getConfiguredMeshTransport(), available: MESH_TRANSPORTS });
+    }
+
+    if (req.method === "POST" && req.url === "/api/mesh/transport") {
+      const body = await readJson(req);
+      const transport = String(body.transport || "").trim().toLowerCase();
+      if (!MESH_TRANSPORTS.includes(transport)) {
+        return sendJson(res, 400, { error: `transport must be one of: ${MESH_TRANSPORTS.join(", ")}` });
+      }
+      setConfiguredMeshTransport(transport);
+      if (transport === "meshcore" && Object.prototype.hasOwnProperty.call(body, "port")) {
+        setConfiguredMeshCorePort(String(body.port || "").trim());
+      }
+      stopBridge();
+      startBridge();
+      return sendJson(res, 200, { ok: true, transport: getConfiguredMeshTransport(), ports: listMeshtasticPorts() });
     }
 
     if (req.method === "GET" && req.url === "/api/messages") {
